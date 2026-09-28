@@ -489,6 +489,7 @@ function adminFinanceHub(){
     <button class="card" onclick="go('accounting')"><h3>Ön Muhasebe</h3><div class="muted small">Banka hareketleri, gider/fatura ve eşleştirmeler</div></button>
     <button class="card" onclick="go('accounts')"><h3>Borçlar / Cari Hesaplar</h3><div class="muted small">Daire ve kişi bazında borç, ödeme ve kalan</div></button>
     <button class="card" onclick="go('reports')"><h3>Finansal Raporlar</h3><div class="muted small">Aylık, dönemsel ve yıllık gelir-gider raporları</div></button>
+    <button class="card" onclick="go('reportArchive')"><h3>Aylık Rapor Arşivi</h3><div class="muted small">Drive'a kaydedilen borç, tüketim ve gelir-gider PDF'leri</div></button>
     <button class="card" onclick="go('assessments')"><h3>Ek Tahakkuk</h3><div class="muted small">Özel giderleri dairelere dağıt</div></button>
     <button class="card" onclick="openLateFeeSettings()"><h3>Gecikme Kuralı</h3><div class="muted small">Son ödeme ve gecikme/faiz kuralları</div></button>
   </div>`;
@@ -516,6 +517,21 @@ function createCaretakerPeriod(){
 }
 function caretakerOperations(){
   return shell(`<div><h2>İşlemler</h2><div class="muted small">Günlük operasyon ekranları</div></div><div class="grid2" style="margin-top:10px"><button class="card" onclick="go('expenses')"><h3>Gider / Ödeme</h3><div class="muted small">Fiş, fatura ve banka çıkışları</div></button><button class="card" onclick="go('history')"><h3>Daire Geçmişi</h3><div class="muted small">Tüketim, borç ve tahsilat geçmişi</div></button><button class="card" onclick="go('library')"><h3>Kütüphane</h3><div class="muted small">Hesaplama yöntemi, kararlar ve önemli numaralar</div></button></div>`,caretakerMainNav());
+}
+function reportTypeLabel(t){return t==='debts'?'Borçlar':t==='consumptions'?'Tüketimler':'Gelir - Gider'}
+async function managerReportArchive(){
+  const nav=adminMainNav();
+  try{
+    const data=await authCall('staff_list_archives',{building_id:CONFIG.buildingId},true);
+    const rows=data.archives||[];
+    const grouped={};
+    rows.forEach(r=>{(grouped[r.period_month]||(grouped[r.period_month]=[])).push(r)});
+    const html=Object.keys(grouped).sort().reverse().map(m=>{
+      const list=grouped[m];
+      return `<div class="card" style="margin-top:10px"><div class="sectionHead"><div><h3>${isoMonthLabel(m)}</h3><div class="small muted">Aylık PDF arşivi</div></div><span class="badge">${list.filter(x=>x.status==='uploaded').length}/3 Drive</span></div><div class="list" style="margin-top:8px">${list.map(r=>`<div class="listitem"><div class="sectionHead"><div><b>${reportTypeLabel(r.report_type)}</b><div class="small muted">${esc(r.file_name)}</div></div><span class="pill ${r.status==='uploaded'?'ok':r.status==='failed'?'danger':''}">${r.status==='uploaded'?'Drive’a kaydedildi':r.status==='failed'?'Hata':'Bekliyor'}</span></div>${r.drive_url?`<div class="actions" style="margin-top:7px"><a href="${esc(r.drive_url)}" target="_blank" rel="noopener">PDF'yi Aç</a></div>`:''}</div>`).join('')}</div></div>`;
+    }).join('');
+    return shell(`<div class="sectionHead"><div><h2>Aylık Rapor Arşivi</h2><div class="muted small">Borçlar, tüketimler ve gelir-gider PDF kayıtları</div></div></div>${html||'<div class="notice" style="margin-top:10px">Henüz arşiv kaydı yok.</div>'}`,nav);
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Arşiv yüklenemedi.')}</div>`,nav)}
 }
 function periodSelect(){
   return `<label>Dönem<select id="periodSel" onchange="activePeriodId=this.value;render()">${state.periods.map(p=>`<option value="${p.id}" ${p.id===activePeriodId?'selected':''}>${isoMonthLabel(p.month)} · ${p.status==='locked'?'Kesinleşti':'Taslak'}</option>`).join('')}</select></label>`;
@@ -1616,7 +1632,7 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
     if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
