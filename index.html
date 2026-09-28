@@ -313,9 +313,19 @@ let financeReportYear=String(new Date().getFullYear());
 let activePeriodId=state.periods.find(p=>p.status==='draft')?.id || state.periods[0]?.id;
 let meterContext={type:'cold',index:0};
 
+async function cloudActivity(action,detail='',meta={}){
+  try{
+    if(!session||!authSession||!publicSb)return;
+    const {data:{user}}=await publicSb.auth.getUser();
+    if(!user)return;
+    const unitCode=session.unitId?(unit(session.unitId)?.code||session.authUsername||null):null;
+    await publicSb.from('activity_log').insert({building_id:CONFIG.buildingId,auth_user_id:user.id,account_role:session.role,username:session.authUsername||session.label,display_name:session.label,unit_code:unitCode,action,detail:detail||null,route:route||null,metadata:meta||{}});
+  }catch(e){console.warn('Activity log failed',e)}
+}
 function logAudit(action,detail=''){
   state.audit.unshift({id:uid('a'),at:new Date().toISOString(),actor:session?.label||'Sistem',action,detail});
   state.audit=state.audit.slice(0,300); saveState();
+  cloudActivity(action,detail,{kind:'state_change'});
 }
 function person(id){return state.people.find(p=>p.id===id)}
 function unit(id){return state.units.find(u=>u.id===id)}
@@ -368,6 +378,7 @@ async function login(code,password){
     localStorage.setItem(SESSION_KEY,JSON.stringify(session));
     if(['manager','caretaker'].includes(role)) await cloudLoadState();
     route='home';render();
+    cloudActivity('Giriş yaptı','Sisteme başarılı giriş',{kind:'login'});
     if(session.mustChangePassword)setTimeout(()=>openChangePassword(true),200);
     return true;
   }catch(e){
@@ -376,6 +387,7 @@ async function login(code,password){
   }
 }
 async function logout(){
+  try{await cloudActivity('Çıkış yaptı','Oturumu kapattı',{kind:'logout'})}catch(e){}
   session=null;cloudAccess=null;authSession=null;
   localStorage.removeItem(SESSION_KEY);localStorage.removeItem(AUTH_SESSION_KEY);
   try{await publicSb.auth.signOut()}catch(e){}
@@ -392,7 +404,7 @@ function shell(content,nav){
 function bottomNav(items){
   return `<nav class="bottomNav noPrint">${items.map(i=>`<button class="${route===i.id?'active':''}" onclick="go('${i.id}')"><span class="ico">${i.ico}</span>${i.label}</button>`).join('')}</nav>`;
 }
-function go(r){route=r;render();window.scrollTo({top:0,behavior:'smooth'})}
+function go(r){route=r;render();cloudActivity('Sayfa görüntüledi',r,{kind:'navigation'});window.scrollTo({top:0,behavior:'smooth'})}
 
 function renderLogin(){
   const demo=`<details class="testAccess"><summary>Yönetim girişleri</summary><div class="small muted">Admin: admin · Kat görevlisi: Engin</div></details>`;
@@ -461,13 +473,29 @@ function buildingAccountInfoHTML(){
   return `<div style="margin-top:12px"><h3>Hesap Bilgileri</h3><div class="grid2" style="margin-top:8px">${card(BUILDING_BANK_INFO.isbank)}${card(BUILDING_BANK_INFO.ziraat)}</div></div>`;
 }
 function adminMainNav(){
-  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'unitHub',ico:'🏠',label:'Daire Yönetimi'},{id:'financeHub',ico:'₺',label:'Finans'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'library',ico:'▤',label:'Kütüphane'}];
+  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'unitHub',ico:'🏠',label:'Daire Yönetimi'},{id:'financeHub',ico:'₺',label:'Finans'},{id:'activityLogs',ico:'🧾',label:'Loglar'},{id:'library',ico:'▤',label:'Kütüphane'}];
 }
 function caretakerMainNav(){
   return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'},{id:'myLeaves',ico:'🌴',label:'İzinlerim'}];
 }
 function residentOverdueInfo(unitId){
   return overdueUnits().find(x=>x.u.id===unitId)||null;
+}
+async function adminActivityLogs(){
+  try{
+    let q=publicSb.from('activity_log').select('*').eq('building_id',CONFIG.buildingId).order('created_at',{ascending:false}).limit(500);
+    const unitCode=$('#logUnitFilter')?.value||'';
+    const role=$('#logRoleFilter')?.value||'';
+    const search=($('#logSearch')?.value||'').trim();
+    if(unitCode)q=q.eq('unit_code',unitCode);
+    if(role)q=q.eq('account_role',role);
+    const {data,error}=await q;if(error)throw error;
+    let rows=data||[];
+    if(search){const n=normTR(search);rows=rows.filter(x=>normTR((x.username||'')+' '+(x.display_name||'')+' '+(x.action||'')+' '+(x.detail||'')).includes(n))}
+    const unitOpts=[...Array(33)].map((_,i)=>'D'+String(i+1).padStart(2,'0')).concat(['S01','S02']).map(c=>`<option value="${c}" ${c===unitCode?'selected':''}>${c}</option>`).join('');
+    const table=rows.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString('tr-TR')}</td><td><b>${esc(x.unit_code||'—')}</b></td><td>${esc(x.display_name||x.username||'—')}</td><td>${x.account_role==='manager'?'Admin':x.account_role==='caretaker'?'Kat Görevlisi':x.account_role==='owner'?'Malik':'Kiracı'}</td><td>${esc(x.action||'')}</td><td>${esc(x.detail||'—')}</td></tr>`).join('');
+    return shell(`<div class="sectionHead"><div><h2>Kullanıcı Hareket Kayıtları</h2><div class="muted small">Kim, ne zaman girdi ve sistemde ne yaptı?</div></div><span class="badge">Son ${rows.length} kayıt</span></div><div class="card" style="margin-top:10px"><div class="grid3"><label>Daire<select id="logUnitFilter" onchange="render()"><option value="">Tüm daireler</option>${unitOpts}</select></label><label>Rol<select id="logRoleFilter" onchange="render()"><option value="">Tüm roller</option><option value="caretaker" ${role==='caretaker'?'selected':''}>Kat Görevlisi</option><option value="owner" ${role==='owner'?'selected':''}>Malik</option><option value="tenant" ${role==='tenant'?'selected':''}>Kiracı</option><option value="manager" ${role==='manager'?'selected':''}>Admin</option></select></label><label>Ara<input id="logSearch" value="${esc(search)}" placeholder="Kullanıcı, işlem..." oninput="clearTimeout(window._logT);window._logT=setTimeout(()=>render(),250)"></label></div></div><div class="tableWrap" style="margin-top:10px"><table><thead><tr><th>Tarih/Saat</th><th>Daire</th><th>Kullanıcı</th><th>Rol</th><th>İşlem</th><th>Detay</th></tr></thead><tbody>${table||'<tr><td colspan="6">Kayıt bulunamadı.</td></tr>'}</tbody></table></div>`,adminMainNav());
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Loglar alınamadı.')}</div>`,adminMainNav())}
 }
 function adminUnitHub(){
   const activeRels=(state.responsibilities||[]).filter(r=>r.active).length;
@@ -1700,7 +1728,7 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
     if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
