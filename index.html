@@ -271,19 +271,31 @@ function normalizeState(s){
 }
 function saveState(){
   localStorage.setItem(STORE_KEY,JSON.stringify(state));
-  if(sb && cloudAccess && ['manager','caretaker'].includes(cloudAccess.role)){
+  if(session && ['manager','caretaker'].includes(session.role) && authSession){
     clearTimeout(cloudTimer);
     cloudTimer=setTimeout(async()=>{
-      try{await sb.from('app_state').upsert({building_id:cloudAccess.building_id,payload:state,updated_at:new Date().toISOString()},{onConflict:'building_id'});}catch(e){console.warn('Cloud sync failed',e)}
-    },250);
+      try{
+        await authCall('staff_save_state',{building_id:CONFIG.buildingId,payload:state},true);
+        session.lastCloudSync=new Date().toISOString();
+        localStorage.setItem(SESSION_KEY,JSON.stringify(session));
+      }catch(e){console.warn('Cloud sync failed',e)}
+    },350);
   }
 }
 async function cloudLoadState(){
-  if(!sb || !cloudAccess) return;
-  const {data,error}=await sb.from('app_state').select('payload').eq('building_id',cloudAccess.building_id).maybeSingle();
-  if(error) throw error;
-  if(data?.payload){state=data.payload;localStorage.setItem(STORE_KEY,JSON.stringify(state));activePeriodId=state.periods.find(p=>p.status==='draft')?.id||state.periods[0]?.id;}
-  else if(['manager','caretaker'].includes(cloudAccess.role)){await sb.from('app_state').insert({building_id:cloudAccess.building_id,payload:state});}
+  if(!session || !['manager','caretaker'].includes(session.role) || !authSession) return;
+  try{
+    const data=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
+    if(data?.state){
+      state=normalizeState(data.state);
+      localStorage.setItem(STORE_KEY,JSON.stringify(state));
+      activePeriodId=state.periods.find(p=>p.status==='draft')?.id||state.periods[0]?.id;
+      session.lastCloudSync=data.updated_at||new Date().toISOString();
+      localStorage.setItem(SESSION_KEY,JSON.stringify(session));
+    }else{
+      await authCall('staff_save_state',{building_id:CONFIG.buildingId,payload:state},true);
+    }
+  }catch(e){console.warn('Cloud load failed',e)}
 }
 function authEmailsForCode(code){
   const c=code.toLowerCase();
@@ -353,6 +365,7 @@ async function login(code,password){
     const label=role==='manager'?'Admin':role==='caretaker'?'Engin':unitId?((unit(unitId)?.label||a.username)+' '+(role==='owner'?'Malik':'Kiracı')):(a.display_name||a.username);
     session={role,label,unitId,authAccountId:a.id,authUsername:a.username,mustChangePassword:!!a.must_change_password};
     localStorage.setItem(SESSION_KEY,JSON.stringify(session));
+    if(['manager','caretaker'].includes(role)) await cloudLoadState();
     route='home';render();
     if(session.mustChangePassword)setTimeout(()=>openChangePassword(true),200);
     return true;
