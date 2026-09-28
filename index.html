@@ -75,11 +75,43 @@ const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,14
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
 const STORE_KEY = 'ibraKatV1State';
 const SESSION_KEY = 'ibraKatV1Session';
+const AUTH_SESSION_KEY = 'ibraKatAuthSession';
 const CONFIG = window.IBRA_KAT_CONFIG || {mode:'demo'};
 const sb = (CONFIG.mode==='supabase' && window.supabase && CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) ? window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey) : null;
 const publicSb = (window.supabase && CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) ? window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey) : null;
 let cloudAccess = null;
 let cloudTimer = null;
+let authSession=(()=>{try{return JSON.parse(localStorage.getItem(AUTH_SESSION_KEY))}catch(e){return null}})();
+
+function localUnitIdForCode(code){
+  const c=String(code||'').toUpperCase();
+  if(/^D\d{2}$/.test(c)) return 'apt'+Number(c.slice(1));
+  if(c==='S01') return 'shop1';
+  if(c==='S02') return 'shop2';
+  return null;
+}
+async function authToken(){
+  if(!authSession?.access_token)return '';
+  const exp=Number(authSession.expires_at||0);
+  if(exp && exp*1000>Date.now()+60000)return authSession.access_token;
+  try{
+    const {data,error}=await publicSb.auth.setSession({access_token:authSession.access_token,refresh_token:authSession.refresh_token});
+    if(!error&&data?.session){
+      authSession={access_token:data.session.access_token,refresh_token:data.session.refresh_token,expires_at:data.session.expires_at};
+      localStorage.setItem(AUTH_SESSION_KEY,JSON.stringify(authSession));
+      return authSession.access_token;
+    }
+  }catch(e){}
+  return authSession.access_token;
+}
+async function authCall(action,body={},withAuth=false){
+  const headers={'Content-Type':'application/json','apikey':CONFIG.supabaseAnonKey};
+  if(withAuth){const t=await authToken();if(t)headers.Authorization='Bearer '+t}
+  const res=await fetch(CONFIG.supabaseUrl+'/functions/v1/ibra-auth',{method:'POST',headers,body:JSON.stringify({action,...body})});
+  let data={};try{data=await res.json()}catch(e){}
+  if(!res.ok)throw new Error(data.error||'İşlem başarısız');
+  return data;
+}
 
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
@@ -310,41 +342,35 @@ function notify(msg){
 function esc(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
 async function login(code,password){
-  code=code.trim().toUpperCase();
-  if(sb){
-    for(const email of authEmailsForCode(code)){
-      const {data,error}=await sb.auth.signInWithPassword({email,password});
-      if(!error && data?.user){
-        const {data:access,error:ae}=await sb.from('user_access').select('*').eq('user_id',data.user.id).eq('active',true).maybeSingle();
-        if(ae||!access){await sb.auth.signOut();continue}
-        cloudAccess=access;
-        let label=access.role==='manager'?'Yönetici':access.role==='caretaker'?'Kat Görevlisi':access.role==='owner'?'Malik':'Kiracı';
-        let unitId=null;
-        if(access.unit_id){const {data:u}=await sb.from('units').select('id,code,label').eq('id',access.unit_id).maybeSingle();unitId=u?.code?.startsWith('D')?('apt'+Number(u.code.slice(1))):u?.code==='DUKKAN1'?'shop1':u?.code==='DUKKAN2'?'shop2':null;label=`${u?.label||code} ${label}`;}
-        session={role:access.role,label,unitId,cloudUserId:data.user.id};
-        localStorage.setItem(SESSION_KEY,JSON.stringify(session));
-        await cloudLoadState();route='home';render();return true;
-      }
-    }
+  code=String(code||'').trim();
+  try{
+    const data=await authCall('login',{username:code,password},false);
+    authSession=data.session;
+    localStorage.setItem(AUTH_SESSION_KEY,JSON.stringify(authSession));
+    const a=data.account||{};
+    const role=a.role==='manager'?'manager':a.role==='caretaker'?'caretaker':a.role==='owner'?'owner':'tenant';
+    const unitId=localUnitIdForCode(a.username);
+    const label=role==='manager'?'Admin':role==='caretaker'?'Engin':unitId?((unit(unitId)?.label||a.username)+' '+(role==='owner'?'Malik':'Kiracı')):(a.display_name||a.username);
+    session={role,label,unitId,authAccountId:a.id,authUsername:a.username,mustChangePassword:!!a.must_change_password};
+    localStorage.setItem(SESSION_KEY,JSON.stringify(session));
+    route='home';render();
+    if(session.mustChangePassword)setTimeout(()=>openChangePassword(true),200);
+    return true;
+  }catch(e){
+    console.warn(e);
     return false;
   }
-  const demo={
-    'YONETICI|1234':{role:'manager',label:'Yönetici'},
-    'KATGOREVLISI|1234':{role:'caretaker',label:'Kat Görevlisi'},
-    'KAPICI|1234':{role:'caretaker',label:'Kat Görevlisi'},
-    'D08|1111':{role:'owner',label:'Daire 08 Malik',unitId:'apt8'},
-    'D08|2222':{role:'tenant',label:'Daire 08 Kiracı',unitId:'apt8'},
-    'DUKKAN1|3333':{role:'owner',label:'Dükkan 1 Malik',unitId:'shop1'}
-  };
-  const found=demo[`${code}|${password}`];
-  if(found){session=found;localStorage.setItem(SESSION_KEY,JSON.stringify(session));route='home';render();return true}
-  return false;
 }
-async function logout(){if(sb)try{await sb.auth.signOut()}catch(e){}session=null;cloudAccess=null;localStorage.removeItem(SESSION_KEY);route='home';render()}
+async function logout(){
+  session=null;cloudAccess=null;authSession=null;
+  localStorage.removeItem(SESSION_KEY);localStorage.removeItem(AUTH_SESSION_KEY);
+  try{await publicSb.auth.signOut()}catch(e){}
+  route='home';render();
+}
 
 function shell(content,nav){
   return `<div class="app">
-    <div class="brand noPrint"><div><small>IBRA KAT · ${APP_VERSION}</small><h1>${esc(state.building.name)}</h1><div class="muted small">${esc(session.label)}</div></div><div class="actions"><span class="badge">${APP_VERSION}</span><span class="badge">${window.IBRA_KAT_CONFIG?.mode==='supabase'?'Bulut':'Yerel Test'}</span><button onclick="logout()">Çıkış</button></div></div>
+    <div class="brand noPrint"><div><small>IBRA KAT · ${APP_VERSION}</small><h1>${esc(state.building.name)}</h1><div class="muted small">${esc(session.label)}</div></div><div class="actions"><span class="badge">${APP_VERSION}</span><span class="badge">${window.IBRA_KAT_CONFIG?.mode==='supabase'?'Bulut':'Yerel Test'}</span><button onclick="openChangePassword(false)">Şifre</button><button onclick="logout()">Çıkış</button></div></div>
     <div style="height:10px"></div>${content}
     <div class="muted small" style="text-align:center;padding:18px 0 86px">IBRA KAT ${APP_VERSION} · ${APP_VERSION_DATE}</div>
   </div>${bottomNav(nav)}`;
@@ -355,16 +381,61 @@ function bottomNav(items){
 function go(r){route=r;render();window.scrollTo({top:0,behavior:'smooth'})}
 
 function renderLogin(){
-  const demo=window.IBRA_KAT_CONFIG?.mode!=='supabase'?`<details class="testAccess"><summary>Test girişleri</summary><div class="small muted">Yönetici: YONETICI / 1234 · Kat Görevlisi: KATGOREVLISI / 1234</div></details>`:'';
+  const demo=`<details class="testAccess"><summary>Yönetim girişleri</summary><div class="small muted">Admin: admin · Kat görevlisi: Engin</div></details>`;
   return `<div class="coverPage">
     <div class="coverHeader"><div class="coverBrand"><div class="coverMark"><i></i><i></i><i></i></div><div><b>IBRA KAT</b><small>Şehit Erhan Vuruşkan Apartmanı</small></div></div><span>${APP_VERSION}</span></div>
     <div class="coverHero">
-      <section class="coverLogin"><div><h2>Sisteme Giriş</h2><p class="muted">Yönetici, Kat Görevlisi, malik veya kiracı hesabınızla giriş yapın.</p></div><form class="stack" onsubmit="event.preventDefault();doLogin()"><label>Kullanıcı kodu<input id="loginCode" autocomplete="username" placeholder="Örn. D08"></label><label>Şifre<input id="loginPassword" type="password" autocomplete="current-password"></label><button class="primary full">Giriş Yap</button><div id="loginErr" class="small danger"></div></form><div class="coverMini">Veriler rol bazlı yetkilendirme ile yalnızca ilgili kullanıcılar tarafından görüntülenir.</div>${demo}</section>
+      <section class="coverLogin"><div><h2>Sisteme Giriş</h2><p class="muted">Admin, kat görevlisi, malik veya kiracı hesabınızla giriş yapın.</p></div><form class="stack" onsubmit="event.preventDefault();doLogin()"><label>Kullanıcı adı / Daire no<input id="loginCode" autocomplete="username" placeholder="Örn. D08, admin veya Engin"></label><label>Şifre<input id="loginPassword" type="password" autocomplete="current-password"></label><button class="primary full">Giriş Yap</button><div id="loginErr" class="small danger"></div></form><div class="coverMini">Veriler rol bazlı yetkilendirme ile yalnızca ilgili kullanıcılar tarafından görüntülenir.</div>${demo}</section>
     </div>
     <div class="coverFooter"><span>© 2026 IBRA KAT</span><span>Şehit Erhan Vuruşkan Apartmanı Yönetimi için hazırlanmıştır.</span><span>Tüm hakları saklıdır.</span></div>
   </div>`;
 }
 async function doLogin(){const btn=document.querySelector('.coverLogin .primary, .loginBox .primary');if(btn){btn.disabled=true;btn.textContent='Giriş yapılıyor…'}const ok=await login($('#loginCode').value,$('#loginPassword').value);if(!ok){$('#loginErr').textContent='Kod veya şifre hatalı.';if(btn){btn.disabled=false;btn.textContent='Giriş Yap'}}}
+
+
+async function openChangePassword(force=false){
+  openModal(`<h2>Şifre Değiştir</h2><div class="notice">${force?'<b>Geçici şifreyle giriş yaptın.</b> Devam etmek için yeni şifreni belirle.':'Yeni şifreni buradan belirleyebilirsin.'}</div><form class="stack" style="margin-top:10px" onsubmit="event.preventDefault();saveMyPassword(${force?'true':'false'})"><label>Yeni şifre<input id="newMyPassword" type="password" minlength="6" autocomplete="new-password" required></label><label>Yeni şifre tekrar<input id="newMyPassword2" type="password" minlength="6" autocomplete="new-password" required></label><button class="primary">Şifreyi Kaydet</button></form>`);
+}
+async function saveMyPassword(force=false){
+  const p=$('#newMyPassword').value,p2=$('#newMyPassword2').value;
+  if(p.length<6){notify('Şifre en az 6 karakter olmalı.');return}
+  if(p!==p2){notify('Şifreler aynı değil.');return}
+  try{
+    await authCall('change_password',{password:p},true);
+    session.mustChangePassword=false;localStorage.setItem(SESSION_KEY,JSON.stringify(session));
+    closeModal();notify('Şifren güncellendi.');
+  }catch(e){notify(e.message||'Şifre güncellenemedi.')}
+}
+
+let authAdminAccounts=[];
+async function managerAuthUsers(){
+  const nav=[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'units',ico:'🏠',label:'Bölümler'},{id:'authUsers',ico:'🔐',label:'Kullanıcılar'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}];
+  try{
+    const data=await authCall('admin_list',{},true);authAdminAccounts=data.accounts||[];
+    const unitNameById={};
+    const backendUnits={"595c29ae-e489-4261-9852-0616100f86b8":"D01","c35716ee-de94-48cf-94d1-b17a93b8d8aa":"D02","a42dcb0d-c8c4-45f3-a395-d148fe9c31c3":"D03","ae5c9270-2813-416f-8d2f-7bb14d16c3b3":"D04","e2ea2279-e091-4d63-be27-9662baad2488":"D05","82a055ae-bc58-4a2d-90e7-6d7f0cebaaa6":"D06","f937e0b1-9764-4706-8cb7-900ec327291f":"D07","5f372f0c-d4a0-4443-957e-6f65fd4e8736":"D08","95d1265b-7a4a-4bd0-bf68-e946e8838d51":"D09","73fc9df6-c2d6-4afd-b074-7dcc882f75ca":"D10","c35071b7-ae71-4325-b629-c85a1d4013b5":"D11","aa676c48-294c-42dc-84b2-6df1436cf835":"D12","d3d3e9cb-45ee-4395-aa91-58488e420e32":"D13","f29a7f05-0ea5-429f-8d73-8b14102141d3":"D14","2d8e2e4d-75e4-46ee-998f-7ba6b6282af2":"D15","d3166383-b1c3-4053-b967-f60ecfb30d65":"D16","e16a5292-f0c5-4f09-b411-b5fba0adc216":"D17","765d1069-a890-48d2-bed6-2c00fc4186ff":"D18","1d51701e-072a-4a8e-a435-752fd99be2a3":"D19","b13218a7-33d2-4dce-8553-2038191cc5a4":"D20","9b2e4fae-31db-494a-b177-b8a78af86776":"D21","eb8a8936-7f43-4646-a043-4b9db9b2629f":"D22","779b2484-fa59-4eea-8da6-da4c81dd5801":"D23","159c6767-5659-4606-b077-1f391a5666a0":"D24","a6dd1259-497e-49f8-b8ab-f23c361e3a66":"D25","20c5d347-c5df-402d-9735-7c690c65cb6d":"D26","9ca90b5e-b2f5-4d8f-9b19-f8726973e81a":"D27","2027ba0a-9461-4a7e-a68f-7e640deb914a":"D28","63d51078-efe5-452c-b521-aa7c43798731":"D29","3af53497-457a-4f27-ae1c-cf466e1acc5f":"D30","a10729b4-fe55-4abe-a4f2-e587e87d2bb0":"D31","7b662098-10ad-469b-ba96-30c2b7409054":"D32","4b806b9a-f10a-4787-811e-375d1688e47f":"D33","ffcbaef5-e4ea-421c-aad7-936e538e8839":"S01","bad9c986-13fa-421d-b396-68a1768058af":"S02"};
+    const rows=authAdminAccounts.map(a=>`<div class="listitem"><div class="sectionHead"><div><b>${esc(a.username)} · ${esc(a.display_name||'')}</b><div class="small muted">${a.account_role==='manager'?'Admin':a.account_role==='caretaker'?'Kat Görevlisi':a.account_role==='owner'?'Malik':'Kiracı'}${a.unit_id?' · '+(backendUnits[a.unit_id]||''):''}</div></div><span class="pill ${a.active?'ok':''}">${a.active?'Aktif':'Kapalı'}</span></div><div class="actions" style="margin-top:8px"><button onclick="adminResetPassword('${a.id}','${esc(a.username)}')">Şifre Sıfırla</button>${!['manager','caretaker'].includes(a.account_role)?`<button class="${a.active?'dangerBtn':'primary'}" onclick="adminSetAccountActive('${a.id}',${a.active?'false':'true'})">${a.active?'Girişi Kapat':'Girişi Aç'}</button>`:''}</div>${a.must_change_password?'<div class="small warn" style="margin-top:6px">İlk girişte yeni şifre belirlemesi gerekiyor.</div>':''}</div>`).join('');
+    return shell(`<div class="sectionHead"><div><h2>Kullanıcı Hesapları</h2><div class="muted small">Daire numarasıyla giriş, şifre sıfırlama ve erişim kontrolü</div></div><button class="primary" onclick="openCreateResidentAccount()">+ Hesap Aç</button></div><div class="notice" style="margin-top:10px"><b>Giriş kuralı:</b> Sakinler kullanıcı adı olarak D01-D33 veya S01-S02 kullanır. Aynı dairede malik ve kiracı için ayrı hesap olabilir; farklı şifrelerle aynı daire numarası kullanılabilir.</div><div class="list" style="margin-top:10px">${rows||'<div class="card muted">Henüz hesap yok.</div>'}</div>`,nav);
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Kullanıcı hesapları alınamadı.')}</div>`,nav)}
+}
+function openCreateResidentAccount(){
+  openModal(`<h2>Yeni Kullanıcı Hesabı</h2><form class="stack" onsubmit="event.preventDefault();createResidentAccount()"><label>Daire / işyeri<select id="auCode">${[...Array(33)].map((_,i)=>'D'+String(i+1).padStart(2,'0')).concat(['S01','S02']).map(c=>`<option>${c}</option>`).join('')}</select></label><label>Kişi adı<input id="auName" required></label><label>Rol<select id="auRole"><option value="tenant">Kiracı</option><option value="owner">Malik</option></select></label><label>Geçici şifre<input id="auPassword" type="text" minlength="6" required placeholder="En az 6 karakter"></label><div class="notice">Kullanıcı ilk girişte bu geçici şifreyi kendi şifresiyle değiştirecek.</div><button class="primary">Hesabı Aç</button></form>`);
+}
+async function createResidentAccount(){
+  try{
+    await authCall('admin_create',{username:$('#auCode').value,display_name:$('#auName').value,role:$('#auRole').value,password:$('#auPassword').value},true);
+    closeModal();notify('Kullanıcı hesabı açıldı.');route='authUsers';render();
+  }catch(e){notify(e.message||'Hesap açılamadı.')}
+}
+function adminResetPassword(id,username){
+  openModal(`<h2>Şifre Sıfırla</h2><div class="notice"><b>${esc(username)}</b> için yeni geçici şifre belirle. Kullanıcı giriş yaptıktan sonra kendi şifresini değiştirecek.</div><form class="stack" style="margin-top:10px" onsubmit="event.preventDefault();saveAdminResetPassword('${id}')"><label>Geçici şifre<input id="adminTempPassword" type="text" minlength="6" required></label><button class="primary">Şifreyi Sıfırla</button></form>`);
+}
+async function saveAdminResetPassword(id){
+  try{await authCall('admin_reset_password',{account_id:id,password:$('#adminTempPassword').value},true);closeModal();notify('Şifre sıfırlandı.');route='authUsers';render()}catch(e){notify(e.message||'Şifre sıfırlanamadı.')}
+}
+async function adminSetAccountActive(id,active){
+  try{await authCall('admin_set_active',{account_id:id,active},true);notify(active?'Giriş açıldı.':'Giriş kapatıldı.');route='authUsers';render()}catch(e){notify(e.message||'İşlem başarısız.')}
+}
 
 function periodSelect(){
   return `<label>Dönem<select id="periodSel" onchange="activePeriodId=this.value;render()">${state.periods.map(p=>`<option value="${p.id}" ${p.id===activePeriodId?'selected':''}>${isoMonthLabel(p.month)} · ${p.status==='locked'?'Kesinleşti':'Taslak'}</option>`).join('')}</select></label>`;
@@ -522,7 +593,7 @@ function managerHome(){
     </div>
     <div class="actions" style="margin-top:10px"><button onclick="openBankBalanceEditor()">Banka Bakiyelerini Kontrol Et</button><span class="badge">${APP_VERSION}</span></div>
     <div class="card mode" style="margin-top:10px"><div class="sectionHead"><div><h3>${isoMonthLabel(p.month)} Merkezi Sistem</h3><div class="muted small">Bu ayın seçimi tüm apartman için geçerlidir.</div></div><span class="badge">${p.boilerActive?'Kombi Aktif':'Kombi Kapalı'}</span></div></div>
-    <div class="grid2" style="margin-top:10px"><button class="card mode" onclick="go('units')"><h3>Daire Yönetim Merkezi</h3><div class="muted small">Kişiler, tüketimler, borçlar, ödemeler, geçmiş veriler ve cari hesap tek yerde</div></button><button class="card" onclick="go('periods')"><h3>Dönemler</h3><div class="muted small">Yeni ay aç, son ödeme tarihi ve kombi durumu</div></button><button class="card" onclick="go('accounting')"><h3>Ön Muhasebe</h3><div class="muted small">İki banka, otomatik eşleştirme, gider/fatura mutabakatı</div></button><button class="card" onclick="go('reports')"><h3>Finansal Raporlar</h3><div class="muted small">Aylık, özel dönem ve yılbaşından bugüne gelir-gider, alacak-borç</div></button><button class="card" onclick="go('access')"><h3>Giriş Yetkileri</h3><div class="muted small">Aktif ve eski kullanıcıların sisteme erişimini yönet</div></button><button class="card" onclick="go('library')"><h3>Kütüphane</h3><div class="muted small">Hesaplama yöntemi, kararlar, belgeler ve önemli numaralar</div></button><button class="card" onclick="openLateFeeSettings()"><h3>Gecikme Kuralı</h3><div class="muted small">Faiz yalnızca belirlediğin son ödeme tarihinin ertesi gününden itibaren işler</div></button></div>`;
+    <div class="grid2" style="margin-top:10px"><button class="card mode" onclick="go('units')"><h3>Daire Yönetim Merkezi</h3><div class="muted small">Kişiler, tüketimler, borçlar, ödemeler, geçmiş veriler ve cari hesap tek yerde</div></button><button class="card" onclick="go('periods')"><h3>Dönemler</h3><div class="muted small">Yeni ay aç, son ödeme tarihi ve kombi durumu</div></button><button class="card" onclick="go('accounting')"><h3>Ön Muhasebe</h3><div class="muted small">İki banka, otomatik eşleştirme, gider/fatura mutabakatı</div></button><button class="card" onclick="go('reports')"><h3>Finansal Raporlar</h3><div class="muted small">Aylık, özel dönem ve yılbaşından bugüne gelir-gider, alacak-borç</div></button><button class="card" onclick="go('authUsers')"><h3>Kullanıcı Hesapları</h3><div class="muted small">Daire numarasıyla giriş, şifre sıfırlama ve erişim yönetimi</div></button><button class="card" onclick="go('library')"><h3>Kütüphane</h3><div class="muted small">Hesaplama yöntemi, kararlar, belgeler ve önemli numaralar</div></button><button class="card" onclick="openLateFeeSettings()"><h3>Gecikme Kuralı</h3><div class="muted small">Faiz yalnızca belirlediğin son ödeme tarihinin ertesi gününden itibaren işler</div></button></div>`;
   return shell(c,[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'units',ico:'🏠',label:'Bölümler'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}]);
 }
 
@@ -1300,7 +1371,7 @@ function unitPortal(){
   if(route==='myConsumption') return shell(unitConsumption(u),nav);
   if(route==='myPayments') return shell(`<h2>Ödemeler</h2><div class="list" style="margin-top:10px">${state.payments.filter(x=>x.unitId===u.id).map(x=>`<div class="listitem"><b>${x.date}</b><div>${trMoney(x.amount)} · ${esc(x.bankName?x.bankName+' · '+(x.description||'Ödeme'):(x.description||'Ödeme'))}</div></div>`).join('')||'<div class="card muted">Ödeme kaydı yok.</div>'}</div>`,nav);
   if(route==='myDocs') return shell(`<h2>Belgeler</h2><div class="notice">Aylık tüketim ve borç ekstreleri PDF/yazdırma, e-posta ve WhatsApp paylaşımı için burada tutulur.</div><div class="actions" style="margin-top:10px"><button onclick="openStatement('${u.id}')">Güncel Ekstre</button></div>`,nav);
-  return shell(`<h2>Profil</h2><div class="card"><div class="row"><span>Ad Soyad</span><b>${esc(resp?.name||'')}</b></div><div class="row"><span>E-posta</span><span>${personEmails(resp).length?personEmails(resp).map(esc).join('<br>'):'—'}</span></div><div class="row"><span>Telefon</span><span>${esc(resp?.phone||'—')}</span></div></div>`,nav);
+  return shell(`<h2>Profil</h2><div class="card"><div class="row"><span>Ad Soyad</span><b>${esc(resp?.name||'')}</b></div><div class="row"><span>E-posta</span><span>${personEmails(resp).length?personEmails(resp).map(esc).join('<br>'):'—'}</span></div><div class="row"><span>Telefon</span><span>${esc(resp?.phone||'—')}</span></div></div><button class="full" style="margin-top:10px" onclick="openChangePassword(false)">Şifremi Değiştir</button>`,nav);
 }
 
 function unitStatementPage(u){const p=period(),cs=state.charges.filter(c=>c.periodId===p.id&&c.unitId===u.id),pays=state.payments.filter(x=>x.periodId===p.id&&x.unitId===u.id),total=cs.reduce((a,c)=>a+c.amount,0),paid=pays.reduce((a,x)=>a+x.amount,0);return shell(`<div class="card report"><h2>${u.label} · ${isoMonthLabel(p.month)}</h2>${unitConsumptionLines(u.id,p.id)}<h3 style="margin-top:12px">Borçlar</h3>${cs.map(c=>`<div class="reportLine"><span>${esc(c.label||c.type)}</span><b>${trMoney(c.amount)}</b></div>`).join('')||'<p class="muted">Henüz hesaplanmadı.</p>'}<div class="reportLine"><span>Ödenen</span><b>-${trMoney(paid)}</b></div><div class="reportLine reportTotal"><span>Kalan</span><b>${trMoney(total-paid)}</b></div><div class="small muted" style="margin-top:8px">Son ödeme: ${p.dueDate}</div></div><div class="actions noPrint" style="margin-top:10px"><button onclick="window.print()">Yazdır/PDF</button><button onclick="emailStatement('${u.id}')">Mail</button><button onclick="whatsappStatement('${u.id}')">WhatsApp</button></div>`,[{id:'home',ico:'⌂',label:'Hesabım'},{id:'myConsumption',ico:'📟',label:'Tüketim'},{id:'myPayments',ico:'₺',label:'Ödemeler'},{id:'myDocs',ico:'▤',label:'Belgeler'},{id:'myProfile',ico:'⚙',label:'Profil'}])}
@@ -1471,14 +1542,14 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
     if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
   showManagerOpeningAlerts();
 }
 
-window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
+window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 // Service worker disabled in portable iOS build
 render();
