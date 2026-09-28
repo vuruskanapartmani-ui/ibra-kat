@@ -359,6 +359,7 @@ async function login(code,password){
     const data=await authCall('login',{username:code,password},false);
     authSession=data.session;
     localStorage.setItem(AUTH_SESSION_KEY,JSON.stringify(authSession));
+    try{await publicSb.auth.setSession({access_token:authSession.access_token,refresh_token:authSession.refresh_token})}catch(e){}
     const a=data.account||{};
     const role=a.role==='manager'?'manager':a.role==='caretaker'?'caretaker':a.role==='owner'?'owner':'tenant';
     const unitId=localUnitIdForCode(a.username);
@@ -463,7 +464,7 @@ function adminMainNav(){
   return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'unitHub',ico:'🏠',label:'Daire Yönetimi'},{id:'financeHub',ico:'₺',label:'Finans'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'library',ico:'▤',label:'Kütüphane'}];
 }
 function caretakerMainNav(){
-  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'invoices',ico:'🧾',label:'Faturalar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'}];
+  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'},{id:'myLeaves',ico:'🌴',label:'İzinlerim'}];
 }
 function residentOverdueInfo(unitId){
   return overdueUnits().find(x=>x.u.id===unitId)||null;
@@ -478,6 +479,7 @@ function adminUnitHub(){
     <button class="card" onclick="go('residents')"><h3>Kişiler</h3><div class="muted small">Malik, kiracı, oturan ve geçmiş kişi tanımları</div></button>
     <button class="card" onclick="go('authUsers')"><h3>Giriş Hesapları</h3><div class="muted small">Daire numarasıyla giriş, şifre sıfırlama ve erişim kontrolü</div></button>
     <button class="card" onclick="go('access')"><h3>İlişki Yetkileri</h3><div class="muted small">Eski ve aktif ilişkilerin giriş durumunu kontrol et</div></button>
+    <button class="card" onclick="go('leaveManagement')"><h3>İzin Yönetimi</h3><div class="muted small">Kat görevlisi izin talepleri, onay ve geçmiş</div></button>
   </div>`;
   return shell(c,adminMainNav());
 }
@@ -494,6 +496,72 @@ function adminFinanceHub(){
     <button class="card" onclick="openLateFeeSettings()"><h3>Gecikme Kuralı</h3><div class="muted small">Son ödeme ve gecikme/faiz kuralları</div></button>
   </div>`;
   return shell(c,adminMainNav());
+}
+function leaveTypeLabel(t){return ({annual:'Yıllık İzin',excuse:'Mazeret İzni',sick:'Hastalık',unpaid:'Ücretsiz İzin',half_day:'Yarım Gün'})[t]||t}
+function leaveStatusLabel(s){return ({pending:'Bekliyor',approved:'Onaylandı',rejected:'Reddedildi',revision_requested:'Düzeltme İstendi',cancel_requested:'İptal Talebi',change_requested:'Tarih Değişikliği',early_return_requested:'Erken Dönüş',cancelled:'İptal Edildi'})[s]||s}
+function leaveWorkDays(start,end,type){
+  if(type==='half_day')return 0.5;
+  const configured=state.settings?.caretakerWorkDays||[1,2,3,4,5];
+  const a=new Date(start+'T00:00:00'),b=new Date(end+'T00:00:00');let n=0;
+  for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1)){if(configured.includes(d.getDay()))n++}
+  return n;
+}
+async function caretakerLeaves(){
+  try{
+    const data=await authCall('leave_my_requests',{},true);
+    const rows=(data.requests||[]).map(r=>`<div class="listitem"><div class="sectionHead"><div><b>${leaveTypeLabel(r.leave_type)}</b><div class="small muted">${r.start_date} → ${r.end_date} · ${r.requested_days} gün</div></div><span class="pill ${r.status==='approved'?'ok':r.status==='rejected'?'danger':'warn'}">${leaveStatusLabel(r.status)}</span></div>${r.manager_note?`<div class="small" style="margin-top:6px"><b>Yönetici notu:</b> ${esc(r.manager_note)}</div>`:''}${r.attachment_name?`<div class="small muted" style="margin-top:4px">Belge: ${esc(r.attachment_name)}</div>`:''}</div>`).join('');
+    return shell(`<div class="sectionHead"><div><h2>İzinlerim</h2><div class="muted small">İzin talebi oluştur ve durumunu takip et.</div></div><button class="primary" onclick="openLeaveRequestForm()">+ İzin Talebi</button></div><div class="list" style="margin-top:10px">${rows||'<div class="notice">Henüz izin talebi yok.</div>'}</div>`,caretakerMainNav());
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'İzinler yüklenemedi.')}</div>`,caretakerMainNav())}
+}
+function openLeaveRequestForm(){
+  openModal(`<h2>İzin Talebi</h2><form class="stack" onsubmit="event.preventDefault();submitLeaveRequest()">
+    <label>İzin türü<select id="lvType" onchange="updateLeaveDayPreview()"><option value="annual">Yıllık izin</option><option value="excuse">Mazeret izni</option><option value="sick">Hastalık</option><option value="unpaid">Ücretsiz izin</option><option value="half_day">Yarım gün</option></select></label>
+    <div class="grid2"><label>Başlangıç<input id="lvStart" type="date" required onchange="updateLeaveDayPreview()"></label><label>Bitiş<input id="lvEnd" type="date" required onchange="updateLeaveDayPreview()"></label></div>
+    <div class="grid2"><label>Başlangıç saati<input id="lvStartTime" type="time"></label><label>Bitiş saati<input id="lvEndTime" type="time"></label></div>
+    <label>Açıklama<textarea id="lvExplanation" rows="3"></textarea></label>
+    <label>Belge (isteğe bağlı)<input id="lvFile" type="file" accept="image/*,application/pdf"></label>
+    <div id="lvDayPreview" class="notice">Tarihleri seçtiğinde sistem çalışma takvimine göre süreyi hesaplar.</div>
+    <div class="small muted">Bu hesap hukuki hak kararı değildir; tanımlı çalışma takvimine göre ön hesaplamadır.</div>
+    <button class="primary">Yönetici Onayına Gönder</button></form>`);
+}
+function updateLeaveDayPreview(){
+  const s=$('#lvStart')?.value,e=$('#lvEnd')?.value,t=$('#lvType')?.value;if(!s||!e)return;
+  const n=leaveWorkDays(s,e,t);$('#lvDayPreview').innerHTML=`Hesaplanan süre: <b>${n} gün</b>`;
+}
+async function submitLeaveRequest(){
+  const type=$('#lvType').value,start=$('#lvStart').value,end=$('#lvEnd').value;
+  if(!start||!end){notify('Başlangıç ve bitiş tarihini gir.');return}
+  let attachment_path=null,attachment_name=null;
+  const file=$('#lvFile')?.files?.[0];
+  try{
+    if(file){
+      const safe=file.name.replace(/[^a-zA-Z0-9._-]+/g,'_');
+      const path=(session.cloudUserId||'')+'/'+Date.now()+'_'+safe;
+      const {data:{user}}=await publicSb.auth.getUser();
+      const userId=user?.id||'';
+      const finalPath=userId+'/'+Date.now()+'_'+safe;
+      const {error:upErr}=await publicSb.storage.from('leave-documents').upload(finalPath,file,{upsert:false,contentType:file.type||undefined});
+      if(upErr)throw upErr;attachment_path=finalPath;attachment_name=file.name;
+    }
+    await authCall('leave_create',{building_id:CONFIG.buildingId,leave_type:type,start_date:start,end_date:end,start_time:$('#lvStartTime').value||null,end_time:$('#lvEndTime').value||null,requested_days:leaveWorkDays(start,end,type),explanation:$('#lvExplanation').value||null,attachment_path,attachment_name},true);
+    closeModal();notify('İzin talebin yönetici onayına gönderildi.');route='myLeaves';render();
+  }catch(e){notify(e.message||'İzin talebi gönderilemedi.')}
+}
+async function adminLeaveManagement(){
+  try{
+    const data=await authCall('leave_admin_list',{building_id:CONFIG.buildingId},true);
+    const reqs=data.requests||[];
+    const pending=reqs.filter(r=>r.status==='pending'||r.status==='revision_requested');
+    const cards=reqs.map(r=>`<div class="listitem"><div class="sectionHead"><div><b>${esc(r.requester_name)} · ${leaveTypeLabel(r.leave_type)}</b><div class="small muted">${r.start_date} → ${r.end_date} · ${r.requested_days} gün</div></div><span class="pill ${r.status==='approved'?'ok':r.status==='rejected'?'danger':'warn'}">${leaveStatusLabel(r.status)}</span></div>${r.explanation?`<div class="small" style="margin-top:6px">${esc(r.explanation)}</div>`:''}<div class="actions" style="margin-top:8px">${r.status==='pending'?`<button class="primary" onclick="reviewLeave('${r.id}','approved')">Onayla</button><button class="dangerBtn" onclick="reviewLeave('${r.id}','rejected')">Reddet</button><button onclick="reviewLeave('${r.id}','revision_requested')">Düzeltme iste</button>`:''}</div></div>`).join('');
+    return shell(`<div class="sectionHead"><div><h2>İzin Yönetimi</h2><div class="muted small">Kat görevlisi izin talepleri ve geçmişi</div></div><span class="badge">${pending.length} bekleyen</span></div><div class="list" style="margin-top:10px">${cards||'<div class="notice">Henüz izin talebi yok.</div>'}</div>`,adminMainNav());
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'İzinler yüklenemedi.')}</div>`,adminMainNav())}
+}
+function reviewLeave(id,decision){
+  const labels={approved:'Onayla',rejected:'Reddet',revision_requested:'Düzeltme İste'};
+  openModal(`<h2>${labels[decision]}</h2><form class="stack" onsubmit="event.preventDefault();saveLeaveReview('${id}','${decision}')"><label>Yönetici açıklaması<textarea id="leaveManagerNote" rows="3"></textarea></label><button class="primary">Kaydet</button></form>`);
+}
+async function saveLeaveReview(id,decision){
+  try{await authCall('leave_review',{request_id:id,decision,manager_note:$('#leaveManagerNote').value||null},true);closeModal();notify('İzin talebi güncellendi.');route='leaveManagement';render()}catch(e){notify(e.message||'İşlem başarısız.')}
 }
 function caretakerPeriods(){
   const rows=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month)).map(p=>`<div class="listitem"><div class="sectionHead"><div><b>${isoMonthLabel(p.month)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'} · Aidat ${trMoney(p.dues)}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div></div>`).join('');
@@ -1632,14 +1700,14 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
-    if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else {route='home';app.innerHTML=caretakerHome()}
+    if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
   showManagerOpeningAlerts();
 }
 
-window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
+window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 // Service worker disabled in portable iOS build
 render();
