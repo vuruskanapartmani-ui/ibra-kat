@@ -23,7 +23,34 @@
 .coverPage{min-height:100vh;display:flex;flex-direction:column;background:linear-gradient(135deg,#f8fbff 0%,#eef6f7 55%,#f8fafc 100%);color:#10213d}.coverHeader{display:flex;align-items:center;justify-content:space-between;padding:28px clamp(24px,5vw,70px);border-bottom:1px solid #dce6ef}.coverBrand{display:flex;align-items:center;gap:12px}.coverBrand b{display:block;font-size:23px;letter-spacing:.08em}.coverBrand small{display:block;color:#66758a;letter-spacing:.12em;font-size:10px;margin-top:2px}.coverMark{display:flex;align-items:flex-end;gap:3px;width:34px;height:34px}.coverMark i{display:block;width:8px;border-radius:2px 2px 0 0;background:#0f766e}.coverMark i:nth-child(1){height:17px}.coverMark i:nth-child(2){height:27px;background:#2563a6}.coverMark i:nth-child(3){height:34px;background:#17345b}.coverHeader>span{font-size:12px;color:#66758a}.coverBody{flex:1;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,430px);gap:clamp(28px,6vw,90px);align-items:center;width:min(1180px,calc(100% - 40px));margin:auto;padding:70px 0}.coverEyebrow{font-size:12px;font-weight:800;letter-spacing:.16em;color:#0f766e}.coverIntro h1{font-size:clamp(36px,5vw,64px);line-height:1.05;margin:14px 0 18px;letter-spacing:-.035em}.coverIntro h1 span{color:#2a6b9e}.coverIntro p{font-size:18px;line-height:1.55;color:#607086;max-width:640px}.coverRoles{display:flex;flex-wrap:wrap;gap:8px;margin-top:30px}.coverRoles span{background:#fff;border:1px solid #dbe5ee;border-radius:999px;padding:8px 13px;font-size:13px;color:#3d4f66}.coverLogin{background:rgba(255,255,255,.94);border:1px solid #dce6ef;border-radius:22px;padding:28px;box-shadow:0 22px 60px rgba(26,48,75,.11)}.coverLogin h2{margin:0 0 4px}.coverLogin form{margin-top:20px}.testAccess{margin-top:14px;border-top:1px solid #e5ebf1;padding-top:12px}.testAccess summary{cursor:pointer;font-size:12px;color:#64748b}.coverFooter{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap;padding:18px clamp(24px,5vw,70px);border-top:1px solid #dce6ef;color:#778499;font-size:11px}.setupRow{display:grid;grid-template-columns:1fr auto;align-items:center;gap:16px;padding:13px 0;border-bottom:1px solid var(--line)}.setupRow:last-child{border-bottom:0}.setupStats{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.setupStats span{font-size:12px;color:#64748b;background:#f4f7fa;border-radius:999px;padding:6px 9px}@media(max-width:760px){.coverBody{grid-template-columns:1fr;padding:36px 0}.coverIntro h1{font-size:40px}.coverFooter{justify-content:flex-start}.setupRow{grid-template-columns:1fr}.setupStats{justify-content:flex-start}}
 
 
-.meterJump{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.meterQuick{display:flex;gap:6px;overflow-x:auto;padding:6px 0 2px;scrollbar-width:thin}.meterQuick button{min-width:42px;min-height:38px;padding:6px 9px}.meterQuick button.active{background:var(--accent);color:#fff;border-color:var(--accent)}.reconGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.reconCard{border-radius:13px;padding:11px;border:1px solid var(--line)}.reconCard.okbg{background:var(--okbg)}.reconCard.warnbg{background:var(--warnbg)}.reconCard.badbg{background:var(--dangerbg)}.matchRow{border-left:5px solid #94a3b8}.matchRow.matched{border-left-color:#16a34a}.matchRow.missing{border-left-color:#e67e4f}.matchRow.unpaid{border-left-color:#d89b00}@media(max-width:700px){.reconGrid{grid-template-columns:1fr}.meterJump{grid-template-columns:1fr}}
+.meterJump{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.meterQuick{display:flex;gap:6px;overflow-x:auto;padding:6px 0 2px;scrollbar-width:thin}.meterQuick button{min-width:42px;min-height:38px;padding:6px 9px}.meterQuick button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.meterFastScreen{display:flex;flex-direction:column;gap:9px;min-height:calc(100dvh - 185px);padding-bottom:82px}
+.meterFastTop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.meterFastTop b{font-size:15px}.meterMissingBtn{min-height:38px;padding:7px 10px}
+.meterTypeTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:#e9eef5;border-radius:13px;padding:4px}
+.meterTypeTabs button{border:0;min-height:42px;background:transparent;padding:7px 5px;font-weight:800}
+.meterTypeTabs button.active{background:#fff;color:var(--accent);box-shadow:0 2px 8px rgba(15,23,42,.08)}
+.meterTypeTabs button:disabled{opacity:.38}
+.meterFastUnit{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}
+.meterFastUnit label{font-size:12px;color:var(--muted);font-weight:700}
+.meterFastUnit select{font-size:17px;font-weight:850;min-height:48px;margin-top:3px}
+.meterUnitPos{min-width:52px;min-height:48px;border:1px solid var(--line);border-radius:11px;background:#fff;display:grid;place-items:center;font-weight:850}
+.meterFastCard{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px}
+.meterFastHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.meterTypeIcon{font-size:18px;margin-right:6px}.meterFastCard h2{font-size:24px;margin:5px 0 10px}
+.meterValues{display:grid;grid-template-columns:.8fr 1.2fr;gap:8px;align-items:stretch}
+.meterPrevBox,.meterInputBox{border:1px solid var(--line);border-radius:13px;padding:9px 10px;background:#f8fafc}
+.meterPrevBox span,.meterInputBox span{display:block;font-size:11px;color:var(--muted);font-weight:700;margin-bottom:4px}
+.meterPrevBox b{display:block;font-size:22px;line-height:42px}
+.meterInputBox input{margin:0;min-height:42px;padding:4px 6px;border:0;background:#fff;font-size:28px;font-weight:900;text-align:center}
+.meterInputBox input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.meterFastSecondary{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+.meterFastSecondary button{min-height:40px}
+.meterSaveDock{position:fixed;z-index:15;left:max(10px,calc((100vw - 980px)/2 + 10px));right:max(10px,calc((100vw - 980px)/2 + 10px));bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 8px)}
+.meterSaveNext{width:100%;min-height:58px;font-size:17px;font-weight:900;box-shadow:0 8px 24px rgba(16,90,130,.22)}
+.meterSaveNext span{font-size:22px;margin-left:6px}
+@media(max-width:700px){.meterFastScreen{min-height:calc(100dvh - 155px);gap:7px}.meterFastCard{padding:10px}.meterFastCard h2{font-size:21px;margin:3px 0 7px}.meterValues{grid-template-columns:.75fr 1.25fr}.meterPrevBox,.meterInputBox{padding:7px 8px}.meterPrevBox b{font-size:19px;line-height:39px}.meterInputBox input{font-size:25px}.meterFastSecondary{margin-top:6px}.meterSaveDock{left:8px;right:8px}}
+.reconGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.reconCard{border-radius:13px;padding:11px;border:1px solid var(--line)}.reconCard.okbg{background:var(--okbg)}.reconCard.warnbg{background:var(--warnbg)}.reconCard.badbg{background:var(--dangerbg)}.matchRow{border-left:5px solid #94a3b8}.matchRow.matched{border-left-color:#16a34a}.matchRow.missing{border-left-color:#e67e4f}.matchRow.unpaid{border-left-color:#d89b00}@media(max-width:700px){.reconGrid{grid-template-columns:1fr}.meterJump{grid-template-columns:1fr}}
 
 .unitCenterHead{display:grid;grid-template-columns:minmax(240px,1fr) auto;gap:10px;align-items:end}.unitCenterCards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.unitCenterNav{display:flex;gap:7px;overflow-x:auto;padding:4px 0}.unitCenterNav button{white-space:nowrap;min-height:38px;padding:6px 10px}.unitPanel{background:#fff;border:1px solid var(--line);border-radius:15px;padding:13px;margin-top:9px}.unitPanel h3{margin-bottom:8px}.unitDataGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.unitListRow{display:grid;grid-template-columns:minmax(100px,1fr) minmax(90px,.7fr) auto;gap:9px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.unitListRow:last-child{border-bottom:0}.unitSearchBar{display:grid;grid-template-columns:1.2fr .8fr .8fr;gap:8px}.lateRule{background:#eef6ff;border:1px solid #b7daf9;border-radius:12px;padding:10px 12px}.historyHint{background:#f7f8fb;border:1px dashed #b8c3d1;border-radius:12px;padding:10px 12px}.unitSummaryTable{min-width:1050px}@media(max-width:760px){.unitCenterHead,.unitDataGrid,.unitSearchBar{grid-template-columns:1fr}.unitCenterCards{grid-template-columns:1fr 1fr}.unitListRow{grid-template-columns:1fr auto}.unitListRow .secondary{grid-column:1/-1}}
 
@@ -404,7 +431,12 @@ function shell(content,nav){
 function bottomNav(items){
   return `<nav class="bottomNav noPrint">${items.map(i=>`<button class="${route===i.id?'active':''}" onclick="go('${i.id}')"><span class="ico">${i.ico}</span>${i.label}</button>`).join('')}</nav>`;
 }
-function go(r){route=r;render();cloudActivity('Sayfa görüntüledi',r,{kind:'navigation'});window.scrollTo({top:0,behavior:'smooth'})}
+function go(r){
+  const from=route;
+  if(r==='meters'&&from!=='meters'&&from!=='meterEntry')prepareMeterFastEntry(true);
+  route=r;render();cloudActivity('Sayfa görüntüledi',r,{kind:'navigation'});
+  if(r!=='meters')window.scrollTo({top:0,behavior:'smooth'});
+}
 
 function renderLogin(){
   const demo=`<details class="testAccess"><summary>Yönetim girişleri</summary><div class="small muted">Admin: admin · Kat görevlisi: Engin</div></details>`;
@@ -1361,8 +1393,15 @@ function caretakerHome(){
   ${buildingAccountInfoHTML()}`;
   return shell(c,caretakerMainNav());
 }
-function caretakerMeters(){const p=period();const button=(type,label,ico)=>{const count=state.meterReadings.filter(x=>x.periodId===p.id&&x.type===type).length;const dis=type==='gas'&&!p.boilerActive;return `<button ${dis?'disabled':''} onclick="openMeter('${type}')"><div><b>${ico} ${label}</b><div class="small muted">${dis?'Kombi kapalı · giriş gerekmiyor':count+'/33 tamamlandı'}</div></div><b>›</b></button>`};return shell(`${periodSelect()}<div class="card" style="margin-top:10px"><h2>Sayaç Girişi</h2><div class="muted small">Bir sayaç türü seç. Aşağı-yukarı kaydırmadan daire daire ilerle.</div><div class="meterMenu" style="margin-top:10px">${button('cold','Soğuk Su','💧')}${button('hot','Sıcak Su','♨️')}${button('gas','Gaz','🔥')}</div></div>`,caretakerMainNav());}
-function openMeter(type){const p=period();if(type==='gas'&&!p.boilerActive){notify('Kombi kapalı; gaz sayaç girişi gerekmiyor.');return}meterContext={type,index:0};route='meterEntry';render()}
+function caretakerMeters(){
+  prepareMeterFastEntry(false);
+  return meterEntry();
+}
+function openMeter(type){
+  meterSetType(type);
+  route='meters';
+  render();
+}
 function meterUnits(){return state.units.filter(u=>u.type==='apartment')}
 function findPreviousReading(unitId,type,p){
   const ordered=[...state.periods].sort((a,b)=>a.month.localeCompare(b.month));const idx=ordered.findIndex(x=>x.id===p.id);for(let i=idx-1;i>=0;i--){const r=state.meterReadings.find(x=>x.periodId===ordered[i].id&&x.unitId===unitId&&x.type===type);if(r)return r.current}
@@ -1642,31 +1681,168 @@ async function submitResidentApplication(code){
 let meterAutoAdvance = true;
 let pendingExpenseOcrText = '';
 
+function meterDoneCount(type){
+  const p=period();
+  return state.meterReadings.filter(x=>x.periodId===p.id&&x.type===type).length;
+}
+function meterFirstMissingIndex(type){
+  const p=period(),units=meterUnits();
+  const idx=units.findIndex(u=>!state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===u.id&&r.type===type));
+  return idx>=0?idx:0;
+}
+function prepareMeterFastEntry(force=false){
+  const p=period();
+  if(meterContext.type==='gas'&&!p.boilerActive)meterContext.type='cold';
+  if(force||meterContext.periodId!==p.id){
+    meterContext.periodId=p.id;
+    meterContext.type=(meterContext.type==='hot'||(meterContext.type==='gas'&&p.boilerActive))?meterContext.type:'cold';
+    meterContext.index=meterFirstMissingIndex(meterContext.type);
+  }
+}
+function meterSetType(type){
+  const p=period();
+  if(type==='gas'&&!p.boilerActive){notify('Kombi kapalı; gaz sayaç girişi gerekmiyor.');return}
+  meterContext.type=type;
+  meterContext.periodId=p.id;
+  meterContext.index=meterFirstMissingIndex(type);
+}
 function meterJumpToIndex(idx){
-  idx=Number(idx); const units=meterUnits(); if(!Number.isInteger(idx)||idx<0||idx>=units.length)return;
-  meterContext.index=idx; render();
+  idx=Number(idx);const units=meterUnits();
+  if(!Number.isInteger(idx)||idx<0||idx>=units.length)return;
+  meterContext.index=idx;render();meterFocusInput();
 }
 function meterJumpToCode(code){const units=meterUnits(),idx=units.findIndex(u=>u.code===code);if(idx>=0)meterJumpToIndex(idx)}
 function meterJumpNextMissing(){
   const p=period(),units=meterUnits(),type=meterContext.type;
-  for(let step=1;step<=units.length;step++){const idx=(meterContext.index+step)%units.length,u=units[idx];if(!state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type===type)){meterContext.index=idx;render();return}}
+  for(let step=1;step<=units.length;step++){
+    const idx=(meterContext.index+step)%units.length,u=units[idx];
+    if(!state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type===type)){
+      meterContext.index=idx;render();meterFocusInput();return;
+    }
+  }
   notify('Bu sayaç türünde eksik daire kalmadı.');
 }
-function toggleMeterAutoAdvance(){meterAutoAdvance=$('#meterAutoAdvance')?.checked!==false;notify(meterAutoAdvance?'Otomatik ilerleme açık.':'Otomatik ilerleme kapalı.')}
+function toggleMeterAutoAdvance(){meterAutoAdvance=true}
+function meterFocusInput(){
+  setTimeout(()=>{
+    const el=$('#meterNew');
+    if(!el)return;
+    try{el.focus({preventScroll:true});el.select()}catch(e){el.focus()}
+    el.scrollIntoView({block:'center',behavior:'smooth'});
+  },40);
+}
 function meterEntry(){
-  const p=period(),units=meterUnits(),u=units[meterContext.index],type=meterContext.type,labels={cold:'Soğuk Su',hot:'Sıcak Su',gas:'Gaz'},prev=findPreviousReading(u.id,type,p),existing=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type===type);const curr=existing?.current||'';
-  const done=state.meterReadings.filter(x=>x.periodId===p.id&&x.type===type).length;
+  prepareMeterFastEntry(false);
+  const p=period(),units=meterUnits(),u=units[meterContext.index],type=meterContext.type;
+  const labels={cold:'Soğuk Su',hot:'Sıcak Su',gas:'Gaz'},icons={cold:'💧',hot:'♨️',gas:'🔥'};
+  const prev=findPreviousReading(u.id,type,p);
+  const existing=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type===type);
+  const curr=existing?.current??'';
+  const done=meterDoneCount(type);
   const options=units.map((x,i)=>`<option value="${i}" ${i===meterContext.index?'selected':''}>${x.label}${state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===x.id&&r.type===type)?' ✓':''}</option>`).join('');
-  const quick=units.map((x,i)=>`<button type="button" class="${i===meterContext.index?'active':''}" onclick="meterJumpToIndex(${i})">${i+1}</button>`).join('');
-  const c=`<div class="card meterScreen"><div class="sectionHead"><button onclick="go('meters')">‹ Sayaçlar</button><span class="badge">${done}/33 tamamlandı</span></div>
-  <div class="card soft" style="margin-top:8px"><div class="meterJump"><label>Daireye hızlı geç<select id="meterJumpSel" onchange="meterJumpToIndex(this.value)">${options}</select></label><button onclick="meterJumpNextMissing()">Sonraki Eksik</button></div><div class="meterQuick">${quick}</div><label class="switch" style="margin-top:7px"><input id="meterAutoAdvance" type="checkbox" ${meterAutoAdvance?'checked':''} onchange="toggleMeterAutoAdvance()"> Kaydedince otomatik sonraki daireye geç</label></div>
-  <div class="meterBody"><div class="muted small">${labels[type]}</div><h2>${u.label}</h2><div class="muted small" style="margin-top:14px">Önceki endeks</div><div class="prev">${prev}</div><label style="margin-top:12px">Yeni endeks<input id="meterNew" inputmode="numeric" pattern="[0-9]*" value="${curr}" oninput="validateMeterInput(${prev})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext(${prev})}" placeholder="Yeni endeksi gir"></label><div id="meterResult" class="result ${curr&&curr<prev?'bad':''}">${curr?meterResultText(curr,prev,type):'Yeni değer girildiğinde tüketim hesaplanır.'}</div><div class="actions" style="margin-top:10px"><button onclick="captureMeterPhoto()">📷 Fotoğraf Çek</button><button onclick="saveMeterDraft(${prev})">Sadece Kaydet</button></div><div class="notice" style="margin-top:10px">Daireyi yukarıdaki listeden istediğin an değiştirebilirsin. <b>Kaydet ve Sonraki</b> seçili sayaç türünde ilerlemeye devam eder.</div></div><div class="sticky"><div class="actions"><button ${meterContext.index===0?'disabled':''} onclick="meterPrev()">‹ Önceki</button><button class="primary" onclick="saveMeterNext(${prev})">Kaydet ve Sonraki ›</button></div></div></div>`;
+  const gasDisabled=!p.boilerActive;
+  const c=`<div class="meterFastScreen">
+    <div class="meterFastTop">
+      <div>
+        <div class="small muted">${isoMonthLabel(p.month)} · Sayaç Girişi</div>
+        <b>${done}/33 tamamlandı</b>
+      </div>
+      <button type="button" class="meterMissingBtn" onclick="meterJumpNextMissing()">Sonraki eksik</button>
+    </div>
+
+    <div class="meterTypeTabs">
+      <button type="button" class="${type==='cold'?'active':''}" onclick="meterSetType('cold');render();meterFocusInput()">💧 Soğuk</button>
+      <button type="button" class="${type==='hot'?'active':''}" onclick="meterSetType('hot');render();meterFocusInput()">♨️ Sıcak</button>
+      <button type="button" ${gasDisabled?'disabled':''} class="${type==='gas'?'active':''}" onclick="meterSetType('gas');render();meterFocusInput()">🔥 Gaz</button>
+    </div>
+
+    <div class="meterFastUnit">
+      <label>Daire
+        <select id="meterJumpSel" onchange="meterJumpToIndex(this.value)">${options}</select>
+      </label>
+      <div class="meterUnitPos">${meterContext.index+1}/33</div>
+    </div>
+
+    <div class="meterFastCard">
+      <div class="meterFastHead">
+        <div><span class="meterTypeIcon">${icons[type]}</span><span class="small muted">${labels[type]}</span></div>
+        ${existing?'<span class="pill ok">✓ Kayıtlı</span>':'<span class="pill warn">Bekliyor</span>'}
+      </div>
+      <h2>${u.label}</h2>
+
+      <div class="meterValues">
+        <div class="meterPrevBox"><span>Önceki endeks</span><b>${prev}</b></div>
+        <label class="meterInputBox"><span>Yeni endeks</span>
+          <input id="meterNew" inputmode="decimal" enterkeyhint="next" autocomplete="off" value="${curr}" oninput="validateMeterInput(${prev})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext(${prev})}" placeholder="Değeri gir">
+        </label>
+      </div>
+      <div id="meterResult" class="result ${curr&&Number(curr)<prev?'bad':''}">${curr!==''?meterResultText(curr,prev,type):'Değeri gir; tüketim otomatik hesaplanır.'}</div>
+
+      <div class="meterFastSecondary">
+        <button type="button" onclick="meterPrev()">‹ Önceki daire</button>
+        <button type="button" onclick="captureMeterPhoto()">📷 Fotoğraf</button>
+      </div>
+    </div>
+
+    <div class="meterSaveDock">
+      <button class="primary meterSaveNext" onclick="saveMeterNext(${prev})">Kaydet ve Devam Et <span>›</span></button>
+    </div>
+  </div>`;
+  setTimeout(meterFocusInput,0);
   return shell(c,caretakerMainNav());
 }
+function meterResultText(curr,prev,type){
+  const n=Number(curr);
+  if(!Number.isFinite(n))return 'Geçerli sayı girin.';
+  if(n<prev)return '⚠ Yeni değer önceki endeksten düşük olamaz.';
+  const c=(n-prev)/1000;
+  return `Tüketim: <b>${trNum(c,3)}${type==='gas'?'':' m³'}</b>`;
+}
+function validateMeterInput(prev){
+  const el=$('#meterNew'),res=$('#meterResult');
+  if(!el||!res)return;
+  res.innerHTML=meterResultText(el.value,prev,meterContext.type);
+  res.classList.toggle('bad',Number(el.value)<prev);
+}
+function captureMeterPhoto(){
+  const i=$('#cameraInput');i.value='';
+  i.onchange=()=>{if(i.files?.[0])notify('Sayaç fotoğrafı alındı.')};
+  i.click();
+}
+function saveMeterDraft(prev){saveMeter(prev,false)}
 function saveMeterNext(prev){
   if(!saveMeter(prev,true))return;
-  if(!meterAutoAdvance){render();return}
-  if(meterContext.index<32){meterContext.index++;render()}else{notify('Bu sayaç türünde 33 daire tamamlandı.');go('meters')}
+  const p=period(),units=meterUnits(),type=meterContext.type;
+  if(meterContext.index<units.length-1){
+    meterContext.index++;
+    render();meterFocusInput();return;
+  }
+  const nextType=type==='cold'?'hot':(type==='hot'&&p.boilerActive?'gas':null);
+  if(nextType){
+    meterContext.type=nextType;
+    meterContext.index=meterFirstMissingIndex(nextType);
+    notify((type==='cold'?'Soğuk su':'Sıcak su')+' tamamlandı. '+(nextType==='hot'?'Sıcak suya':'Gaza')+' geçildi.');
+    render();meterFocusInput();return;
+  }
+  notify('Sayaç girişleri tamamlandı.');
+  route='meters';render();
+}
+function meterPrev(){
+  if(meterContext.index>0){meterContext.index--;render();meterFocusInput()}
+}
+function saveMeter(prev,advance){
+  const raw=String($('#meterNew')?.value??'').trim().replace(',','.');
+  const value=Number(raw);
+  if(!raw||!Number.isFinite(value)||value<prev){
+    notify(!raw?'Yeni endeksi gir.':'Yeni değer önceki endeksten düşük olamaz.');
+    meterFocusInput();return false;
+  }
+  const units=meterUnits(),u=units[meterContext.index],p=period(),type=meterContext.type;
+  let r=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type===type);
+  if(!r){r={id:uid('m'),periodId:p.id,unitId:u.id,type};state.meterReadings.push(r)}
+  Object.assign(r,{previous:prev,current:value,consumption:(value-prev)/1000,verified:true});
+  saveState();logAudit('Sayaç kaydedildi',`${p.month} · ${u.label} · ${type}`);
+  return true;
 }
 
 function expenseBankTx(exp){return exp?.bankTransactionId?state.bankTransactions.find(t=>t.id===exp.bankTransactionId):null}
@@ -1735,7 +1911,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
+window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 // Service worker disabled in portable iOS build
 render();
