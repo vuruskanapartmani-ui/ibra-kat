@@ -621,10 +621,20 @@ function buildingCopyRow(label,value){
   const encodedValue=encodeURIComponent(value);
   return `<button type="button" class="copyInfoBtn" title="${esc(label)} kopyala" aria-label="${esc(label)} kopyala" onclick="copyBuildingValue(decodeURIComponent('${encodedValue}'),decodeURIComponent('${encodedLabel}'))"><span style="min-width:0"><span class="small muted" style="display:block;margin-bottom:3px">${esc(label)}</span><span class="copyValue">${esc(value)}</span></span><span class="copyAction"><span class="copyActionIcon">📋</span>Kopyala</span></button>`;
 }
+function buildingCopyGroup(label,lines,copyText){
+  const encodedLabel=encodeURIComponent(label);
+  const encodedValue=encodeURIComponent(copyText);
+  const rows=lines.map(([k,v])=>`<span style="display:block;margin-top:5px"><span class="small muted" style="display:block">${esc(k)}</span><span class="copyValue">${esc(v)}</span></span>`).join('');
+  return `<button type="button" class="copyInfoBtn" title="${esc(label)} kopyala" aria-label="${esc(label)} kopyala" onclick="copyBuildingValue(decodeURIComponent('${encodedValue}'),decodeURIComponent('${encodedLabel}'))"><span style="min-width:0"><span style="display:block;font-weight:850;margin-bottom:2px">${esc(label)}</span>${rows}</span><span class="copyAction"><span class="copyActionIcon">📋</span>Kopyala</span></button>`;
+}
 function buildingAccountInfoHTML(){
-  const bankCard=x=>`<div class="card" style="min-width:0"><div class="small muted">Vuruşkan Apartmanı</div><h3 style="margin-top:4px;overflow-wrap:anywhere">${esc(x.bank)}</h3><div style="display:grid;gap:8px;margin-top:9px">${buildingCopyRow('Hesap No',x.account)}${buildingCopyRow('IBAN',x.iban)}</div></div>`;
+  const bankCard=x=>{
+    const copyText=`Vuruşkan Apartmanı\n${x.bank}\nHesap No: ${x.account}\nIBAN: ${x.iban}`;
+    return `<div class="card" style="min-width:0"><div class="small muted">Vuruşkan Apartmanı</div><h3 style="margin-top:4px;overflow-wrap:anywhere">${esc(x.bank)}</h3><div style="margin-top:9px">${buildingCopyGroup('Hesap Bilgileri',[['Hesap No',x.account],['IBAN',x.iban]],copyText)}</div></div>`;
+  };
   const contact=`<div class="card" style="margin-top:12px"><h3>İletişim Bilgileri</h3><div style="margin-top:8px">${buildingCopyRow('E-posta','vuruskanapartmani@gmail.com')}</div></div>`;
-  const tax=`<div class="card" style="margin-top:12px"><h3>Vergi Bilgileri</h3><div style="display:grid;gap:8px;margin-top:8px">${buildingCopyRow('Mükellef / Unvan','Vuruşkan Apt. No:3')}${buildingCopyRow('Vergi Dairesi','Yamanlar Vergi Dairesi')}${buildingCopyRow('Vergi No','926 049 4801')}</div></div>`;
+  const taxCopy='Mükellef / Unvan: Vuruşkan Apt. No:3\nVergi Dairesi: Yamanlar Vergi Dairesi\nVergi No: 926 049 4801';
+  const tax=`<div class="card" style="margin-top:12px"><h3>Vergi Bilgileri</h3><div style="margin-top:8px">${buildingCopyGroup('Vergi Bilgileri',[['Mükellef / Unvan','Vuruşkan Apt. No:3'],['Vergi Dairesi','Yamanlar Vergi Dairesi'],['Vergi No','926 049 4801']],taxCopy)}</div></div>`;
   const accounts=`<div style="margin-top:12px"><h3>Hesap Bilgileri</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:9px;margin-top:8px">${bankCard(BUILDING_BANK_INFO.isbank)}${bankCard(BUILDING_BANK_INFO.ziraat)}</div></div>`;
   return contact+tax+accounts;
 }
