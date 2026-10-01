@@ -595,10 +595,37 @@ const BUILDING_BANK_INFO = {
   isbank:{bank:'İş Bankası Yeni Girne Şubesi',account:'3390 - 0058893',iban:'TR02 0006 4000 0013 3900 0588 93'},
   ziraat:{bank:'Ziraat Bankası Yeni Girne Şubesi',account:'2081 - 89038200',iban:'TR23 0001 0020 8189 0382 0050 027'}
 };
+async function copyBuildingValue(value,label='Bilgi'){
+  try{
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(value);
+    }else{
+      const ta=document.createElement('textarea');
+      ta.value=value;
+      ta.style.position='fixed';
+      ta.style.opacity='0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    notify(label+' kopyalandı.');
+  }catch(e){
+    notify(label+' kopyalanamadı.');
+  }
+}
+function buildingCopyRow(label,value){
+  const encodedLabel=encodeURIComponent(label);
+  const encodedValue=encodeURIComponent(value);
+  return `<button type="button" onclick="copyBuildingValue(decodeURIComponent('${encodedValue}'),decodeURIComponent('${encodedLabel}'))" style="width:100%;min-height:0;text-align:left;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px 12px;box-shadow:none;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center"><span style="min-width:0"><span class="small muted" style="display:block;margin-bottom:3px">${esc(label)}</span><strong style="display:block;font-size:16px;line-height:1.3;overflow-wrap:anywhere;word-break:break-word">${esc(value)}</strong></span><span class="small" style="color:var(--accent);font-weight:800;white-space:nowrap">Kopyala</span></button>`;
+}
 function buildingAccountInfoHTML(){
-  const card=x=>`<div class="card"><div class="small muted">Vuruşkan Apartmanı</div><h3 style="margin-top:4px">${esc(x.bank)}</h3><div style="margin-top:8px"><b>${esc(x.account)}</b></div><div class="small muted" style="margin-top:4px">IBAN</div><div style="font-weight:800;letter-spacing:.02em;word-break:break-word">${esc(x.iban)}</div></div>`;
-  const identity=`<div class="card" style="margin-top:12px"><h3>Apartman İletişim ve Vergi Bilgileri</h3><div class="grid2" style="margin-top:8px"><div><div class="small muted">E-posta</div><a href="mailto:vuruskanapartmani@gmail.com" style="font-weight:850">vuruskanapartmani@gmail.com</a></div><div><div class="small muted">Vergi Dairesi</div><b>Yamanlar Vergi Dairesi</b></div><div><div class="small muted">Mükellef / Unvan</div><b>Vuruşkan Apt. No:3</b></div><div><div class="small muted">Vergi No</div><b>926 049 4801</b></div></div></div>`;
-  return identity+`<div style="margin-top:12px"><h3>Hesap Bilgileri</h3><div class="grid2" style="margin-top:8px">${card(BUILDING_BANK_INFO.isbank)}${card(BUILDING_BANK_INFO.ziraat)}</div></div>`;
+  const bankCard=x=>`<div class="card" style="min-width:0"><div class="small muted">Vuruşkan Apartmanı</div><h3 style="margin-top:4px;overflow-wrap:anywhere">${esc(x.bank)}</h3><div style="display:grid;gap:8px;margin-top:9px">${buildingCopyRow('Hesap No',x.account)}${buildingCopyRow('IBAN',x.iban)}</div></div>`;
+  const contact=`<div class="card" style="margin-top:12px"><h3>İletişim Bilgileri</h3><div style="margin-top:8px">${buildingCopyRow('E-posta','vuruskanapartmani@gmail.com')}</div></div>`;
+  const tax=`<div class="card" style="margin-top:12px"><h3>Vergi Bilgileri</h3><div style="display:grid;gap:8px;margin-top:8px">${buildingCopyRow('Mükellef / Unvan','Vuruşkan Apt. No:3')}${buildingCopyRow('Vergi Dairesi','Yamanlar Vergi Dairesi')}${buildingCopyRow('Vergi No','926 049 4801')}</div></div>`;
+  const accounts=`<div style="margin-top:12px"><h3>Hesap Bilgileri</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:9px;margin-top:8px">${bankCard(BUILDING_BANK_INFO.isbank)}${bankCard(BUILDING_BANK_INFO.ziraat)}</div></div>`;
+  return contact+tax+accounts;
 }
 function adminMainNav(){
   return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'unitHub',ico:'🏠',label:'Daire Yönetimi'},{id:'financeHub',ico:'₺',label:'Finans'},{id:'activityLogs',ico:'🧾',label:'Loglar'},{id:'library',ico:'▤',label:'Kütüphane'}];
