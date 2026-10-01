@@ -412,6 +412,18 @@ function notify(msg){
 }
 function esc(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
+function normalizeResidentPortalState(x){
+  const s=x&&typeof x==='object'?x:{};
+  s.units ||= [];s.people ||= [];s.responsibilities ||= [];s.periods ||= [];s.meterReadings ||= [];
+  s.charges ||= [];s.payments ||= [];s.invoices ||= [];s.expenses ||= [];s.assessments ||= [];
+  s.notifications ||= [];s.bankTransactions ||= [];s.audit ||= [];s.settings ||= {};
+  s.settings.expenseCategories ||= [];s.settings.overdueReminderDays ||= [1,3,7];s.settings.lateFeeOverrides ||= [];
+  s.settings.bankBalances ||= {isbank:{balance:null,asOf:'',source:''},ziraat:{balance:null,asOf:'',source:''}};
+  s.library ||= {decisions:[],contacts:[],documents:[]};
+  s.library.decisions ||= [];s.library.contacts ||= [];s.library.documents ||= [];
+  s.people.forEach(p=>{p.emails=Array.isArray(p.emails)?p.emails.filter(Boolean):[];if(p.email&&!p.emails.includes(p.email))p.emails.unshift(p.email)});
+  return s;
+}
 async function login(code,password){
   code=String(code||'').trim();
   try{
@@ -426,6 +438,12 @@ async function login(code,password){
     session={role,label,unitId,authAccountId:a.id,authUsername:a.username,mustChangePassword:!!a.must_change_password,recoveryEmail:a.recovery_email||null};
     localStorage.setItem(SESSION_KEY,JSON.stringify(session));
     if(['manager','caretaker'].includes(role)) await cloudLoadState();
+    else {
+      const {data:residentState,error:residentStateError}=await publicSb.rpc('resident_portal_state');
+      if(residentStateError)throw residentStateError;
+      state=normalizeResidentPortalState(residentState);
+      localStorage.setItem(STORE_KEY,JSON.stringify(state));
+    }
     route='home';render();
     cloudActivity('Giriş yaptı','Sisteme başarılı giriş',{kind:'login'});
     if(session.mustChangePassword)setTimeout(()=>openChangePassword(true),200);
@@ -465,7 +483,7 @@ function renderLogin(){
   return `<div class="coverPage">
     <div class="coverHeader"><div class="coverBrand"><div class="coverMark"><i></i><i></i><i></i></div><div><b>IBRA KAT</b><small>Şehit Erhan Vuruşkan Apartmanı</small></div></div><span>${APP_VERSION}</span></div>
     <div class="coverHero">
-      <section class="coverLogin"><div><h2>Sisteme Giriş</h2><p class="muted">Admin, kat görevlisi, malik veya kiracı hesabınızla giriş yapın.</p></div><form class="stack" onsubmit="event.preventDefault();doLogin()"><label>Kullanıcı adı / Daire no<input id="loginCode" autocomplete="username" placeholder="Örn. D08, admin veya Engin"></label><label>Şifre<input id="loginPassword" type="password" autocomplete="current-password"></label><button class="primary full">Giriş Yap</button><button type="button" class="full" onclick="openForgotPassword()">Şifremi Unuttum</button><div id="loginErr" class="small danger"></div></form><div class="coverMini">Veriler rol bazlı yetkilendirme ile yalnızca ilgili kullanıcılar tarafından görüntülenir.</div>${demo}</section>
+      <section class="coverLogin"><div><h2>Sisteme Giriş</h2><p class="muted">Admin, kat görevlisi, malik veya kiracı hesabınızla giriş yapın.</p></div><form class="stack" onsubmit="event.preventDefault();doLogin()"><label>Kullanıcı adı / Daire no<input id="loginCode" autocomplete="username" placeholder="Örn. D08, admin veya Engin"></label><label>Şifre<input id="loginPassword" type="password" autocomplete="current-password"></label><button class="primary full">Giriş Yap</button><button type="button" class="full" onclick="openForgotPassword()">Şifremi Unuttum</button><button type="button" class="soft full" onclick="openResidentJoinForm()">+ Yeni Kayıt / Kişi Kartı</button><div id="loginErr" class="small danger"></div></form><div class="coverMini">Veriler rol bazlı yetkilendirme ile yalnızca ilgili kullanıcılar tarafından görüntülenir.</div>${demo}</section>
     </div>
     <div class="coverFooter"><span>© 2026 IBRA KAT</span><span>Şehit Erhan Vuruşkan Apartmanı Yönetimi için hazırlanmıştır.</span><span>Tüm hakları saklıdır.</span></div>
   </div>`;
@@ -921,6 +939,7 @@ function managerHome(){
   ${lateCount?`<div class="notice danger" style="margin-top:10px"><b>${lateCount} dairede ödenmemiş/gecikmiş bakiye var.</b><br><span class="small">Toplam gecikmiş açık bakiye: ${trMoney(overdue.reduce((a,x)=>a+Number(x.balance||0),0))}</span><div style="margin-top:7px"><button onclick="openOverdueReminderManager()">Detayı Gör</button></div></div>`:'<div class="notice ok" style="margin-top:10px"><b>Gecikmiş açık bakiye bulunmuyor.</b></div>'}
   ${bankPending?`<div class="notice warn" style="margin-top:10px"><b>${bankPending} banka hareketi kontrol bekliyor.</b></div>`:''}
   <div class="grid4" style="margin-top:10px"><div class="card kpi"><div class="klabel">Bu Dönem Tahakkuk</div><div class="kval">${trMoney(due)}</div></div><div class="card kpi"><div class="klabel">Bu Dönem Tahsilat</div><div class="kval">${trMoney(paid)}</div></div><div class="card kpi"><div class="klabel">Toplam Alacak</div><div class="kval">${trMoney(totalReceivables())}</div></div><div class="card kpi"><div class="klabel">Ödenmemiş Gider</div><div class="kval">${trMoney(totalPayables())}</div></div></div>
+  <button class="card" style="margin-top:10px;width:100%;text-align:left;background:#fff8e8!important;border-color:#e7bf62!important" onclick="go('residentApprovals')"><div class="sectionHead"><div><h3>👤 Kişi Kartı Başvuruları</h3><div class="small muted">Yeni malik/kiracı kayıtlarını kontrol et, onayla ve giriş hesabını aç.</div></div><b>Onay Ekranı ›</b></div></button>
   <div class="card" style="margin-top:10px"><div class="sectionHead"><div><h3>Aktif Dönem</h3><div class="small muted">Son ödeme: ${p.dueDate||'—'} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'} · Aidat ${trMoney(p.dues)}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div></div>
   ${buildingAccountInfoHTML()}`;
   return shell(c,adminMainNav());
@@ -1043,6 +1062,64 @@ function openHouseholdPersonForm(unitId){openModal(`<h2>${unit(unitId).label} ·
 function saveHouseholdPerson(unitId){const name=$('#hpName').value.trim(),role=$('#hpRole').value,start=$('#hpStart').value||todayISO();if(!name)return;const p={id:uid('person'),name,phone:$('#hpPhone').value.trim(),emails:parseEmailLines($('#hpEmails').value),email:'',kind:role};p.email=p.emails[0]||'';state.people.push(p);const primary=$('#hpPrimary').checked;if(primary)state.responsibilities.filter(r=>r.unitId===unitId&&r.role===role&&r.active).forEach(r=>r.primaryResponsible=false);state.responsibilities.push({id:uid('r'),unitId,personId:p.id,role,startDate:start,endDate:null,active:true,loginEnabled:$('#hpLogin').checked,primaryResponsible:primary,source:'manual_household'});saveState();logAudit('Daireye kişi eklendi',`${unit(unitId).label} · ${name} · ${accessRoleLabel(role)}`);closeModal();openUnitCenter(unitId);notify('Kişi daireye eklendi.')}
 function unitPersonFinancialCards(unitId){const rels=state.responsibilities.filter(r=>r.unitId===unitId),charges=state.charges.filter(c=>c.unitId===unitId),pays=state.payments.filter(p=>p.unitId===unitId);const persons=[...new Map(rels.map(r=>[r.personId,person(r.personId)])).values()].filter(Boolean);return persons.map(pp=>{const pc=charges.filter(c=>c.personId===pp.id).reduce((a,c)=>a+Number(c.amount||0),0),py=pays.filter(x=>x.personId===pp.id).reduce((a,x)=>a+Number(x.amount||0),0),roles=rels.filter(r=>r.personId===pp.id).map(r=>accessRoleLabel(r.role)).join(', ');return `<div class="listitem"><div class="sectionHead"><div><b>${esc(pp.name)}</b><div class="small muted">${esc(roles)}</div></div><b>${trMoney(pc-py)}</b></div><div class="small">Tahakkuk ${trMoney(pc)} · Ödeme ${trMoney(py)}</div></div>`}).join('')||'<div class="notice">Kişi bazlı hareket yok.</div>'}
 function ownerUnitLedgerPage(u){const p=period(),cs=state.charges.filter(c=>c.periodId===p.id&&c.unitId===u.id),pays=state.payments.filter(x=>x.periodId===p.id&&x.unitId===u.id),total=cs.reduce((a,c)=>a+c.amount,0),paid=pays.reduce((a,x)=>a+x.amount,0),active=activePeopleForUnit(u.id,p.dueDate||todayISO());return shell(`<div class="card"><h2>${u.label} · Daire Cari</h2><div class="notice"><b>Malik görünümü:</b> Daireye ait tüketim, tahakkuk, ödeme ve kiracıya yazılmış daire borçlarını görebilirsin. Diğer dairelere erişemezsin.</div><div class="grid3" style="margin-top:10px"><div class="card kpi"><div class="klabel">Tahakkuk</div><div class="kval">${trMoney(total)}</div></div><div class="card kpi"><div class="klabel">Ödeme</div><div class="kval">${trMoney(paid)}</div></div><div class="card kpi"><div class="klabel">Kalan</div><div class="kval">${trMoney(total-paid)}</div></div></div></div><div class="card" style="margin-top:10px"><h3>Aktif Kişiler</h3>${active.map(x=>`<div class="row"><span>${esc(x.p.name)}</span><b>${accessRoleLabel(x.r.role)}</b></div>`).join('')||'<div class="muted">Aktif kişi yok.</div>'}</div><div class="card" style="margin-top:10px"><h3>Kişi Bazında Cari</h3>${unitPersonFinancialCards(u.id)}</div>`,[{id:'home',ico:'⌂',label:'Hesabım'},{id:'myUnitLedger',ico:'▤',label:'Daire Cari'},{id:'myConsumption',ico:'📟',label:'Tüketim'},{id:'myPayments',ico:'₺',label:'Ödemeler'},{id:'myProfile',ico:'⚙',label:'Profil'}])}
+let residentApprovalCache=[];
+function applicationUnitCode(unitId){return Object.entries(UNIT_UUIDS).find(([,id])=>id===unitId)?.[0]||'—'}
+function applicationStatusLabel(s){return s==='approved'?'Onaylandı':s==='rejected'?'Reddedildi':'Onay Bekliyor'}
+async function managerResidentApprovals(){
+  const nav=adminMainNav();
+  try{
+    const {data,error}=await publicSb.from('resident_applications').select('*').eq('building_id',CONFIG.buildingId).order('submitted_at',{ascending:false});
+    if(error)throw error;
+    residentApprovalCache=data||[];
+    const pending=residentApprovalCache.filter(x=>x.status==='pending');
+    const history=residentApprovalCache.filter(x=>x.status!=='pending').slice(0,30);
+    const pendingHtml=pending.map(a=>`<div class="card" style="margin-top:10px;border:2px solid #e7bf62;background:#fffaf0">
+      <div class="sectionHead"><div><h3>${esc(a.full_name)}</h3><div class="small muted">${applicationUnitCode(a.unit_id)} · ${a.relationship_type==='owner'?'Malik':'Kiracı'} · Başlangıç: ${a.responsibility_start||'—'}</div></div><span class="pill warn">ONAY BEKLİYOR</span></div>
+      <div class="grid2" style="margin-top:10px"><div><div class="small muted">E-posta</div><b>${esc(a.email||'—')}</b></div><div><div class="small muted">Telefon</div><b>${esc(a.phone||'—')}</b></div></div>
+      <div class="actions" style="margin-top:10px"><button class="primary" onclick="approveResidentApplication('${a.id}')">✓ Onayla ve Hesabı Aç</button><button class="dangerBtn" onclick="rejectResidentApplication('${a.id}')">Reddet</button></div>
+    </div>`).join('');
+    const histHtml=history.map(a=>`<div class="listitem"><div class="sectionHead"><div><b>${esc(a.full_name)}</b><div class="small muted">${applicationUnitCode(a.unit_id)} · ${esc(a.email||'')} · ${a.responsibility_start||''}</div></div><span class="pill ${a.status==='approved'?'ok':'danger'}">${applicationStatusLabel(a.status)}</span></div></div>`).join('');
+    return shell(`<div class="sectionHead"><div><h2>Kişi Kartı Başvuruları</h2><div class="muted small">Formu kontrol et. Onaydan sonra kullanıcı kendi dairesinin borç, ödeme ve tüketim bilgilerine giriş yapabilir.</div></div><span class="badge">${pending.length} bekleyen</span></div>
+      ${pendingHtml||'<div class="notice ok" style="margin-top:10px">Onay bekleyen yeni kayıt yok.</div>'}
+      <h3 style="margin-top:18px">Sonuçlanan Başvurular</h3><div class="list" style="margin-top:8px">${histHtml||'<div class="muted small">Henüz sonuçlanan başvuru yok.</div>'}</div>`,nav);
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Başvurular yüklenemedi.')}</div>`,nav)}
+}
+function generatedTemporaryPassword(){
+  const a='ABCDEFGHJKLMNPQRSTUVWXYZ',b='abcdefghijkmnopqrstuvwxyz',n='23456789';
+  const pick=x=>x[Math.floor(Math.random()*x.length)];
+  return pick(a)+pick(b)+pick(b)+pick(n)+pick(n)+pick(a)+pick(b)+'!';
+}
+async function approveResidentApplication(id){
+  const a=residentApprovalCache.find(x=>x.id===id);if(!a)return;
+  if(!a.email){notify('E-posta adresi olmadan giriş hesabı açılamaz.');return}
+  const code=applicationUnitCode(a.unit_id);if(code==='—'){notify('Daire eşleşmesi bulunamadı.');return}
+  if(!confirm(`${a.full_name} · ${code} kaydı onaylansın ve giriş hesabı açılsın mı?`))return;
+  const temp=generatedTemporaryPassword();
+  try{
+    await authCall('admin_create',{username:code,display_name:a.full_name,recovery_email:a.email,role:a.relationship_type,password:temp},true);
+    const {data,error}=await publicSb.rpc('manager_review_resident_application',{p_application_id:id,p_decision:'approved',p_manager_note:null});
+    if(error)throw error;
+    const u=state.units.find(x=>x.code===code);
+    if(u){
+      let p=state.people.find(x=>String(x.email||'').toLowerCase()===String(a.email).toLowerCase());
+      if(!p){p={id:uid('person'),name:a.full_name,email:a.email,phone:a.phone,kind:a.relationship_type,source:'approved_application'};state.people.push(p)}
+      else Object.assign(p,{name:a.full_name,email:a.email,phone:a.phone,kind:a.relationship_type});
+      if(a.relationship_type==='tenant')state.responsibilities.filter(x=>x.unitId===u.id&&x.role==='tenant'&&x.active).forEach(x=>{x.active=false;x.loginEnabled=false;x.endDate=a.responsibility_start});
+      state.responsibilities.push({id:uid('r'),unitId:u.id,personId:p.id,role:a.relationship_type,startDate:a.responsibility_start,endDate:null,active:true,loginEnabled:true,source:'approved_application'});
+      saveState();
+    }
+    openModal(`<h2>Hesap Açıldı</h2><div class="notice ok"><b>${esc(a.full_name)}</b> artık sisteme giriş yapabilir.</div><div class="card" style="margin-top:10px"><div class="row"><span>Kullanıcı adı</span><b>${esc(code)}</b></div><div class="row"><span>Geçici şifre</span><b style="font-size:20px">${esc(temp)}</b></div><div class="row"><span>E-posta</span><b>${esc(a.email)}</b></div></div><div class="notice warn" style="margin-top:10px">Bu geçici şifreyi kullanıcıya iletin. İlk girişte kendi şifresini belirlemesi istenir.</div><button class="primary full" style="margin-top:10px" onclick="closeModal();go('residentApprovals')">Tamam</button>`);
+  }catch(e){notify(e.message||'Onay işlemi tamamlanamadı.')}
+}
+async function rejectResidentApplication(id){
+  const a=residentApprovalCache.find(x=>x.id===id);if(!a)return;
+  const note=prompt('Reddetme notu (isteğe bağlı):','')||null;
+  if(!confirm(`${a.full_name} başvurusu reddedilsin mi?`))return;
+  const {error}=await publicSb.rpc('manager_review_resident_application',{p_application_id:id,p_decision:'rejected',p_manager_note:note});
+  if(error){notify(error.message);return}
+  notify('Başvuru reddedildi.');go('residentApprovals');
+}
+
 function managerResidents(){
   const all=state.responsibilities.map(r=>({r,p:person(r.personId),u:unit(r.unitId)})).filter(x=>x.p&&x.u);
   const active=all.filter(x=>x.r.active).length,old=all.length-active,owners=all.filter(x=>x.r.role==='owner').length,tenants=all.filter(x=>x.r.role==='tenant').length;
@@ -1816,35 +1893,57 @@ function closeModal(){$('#modalBack')?.remove()}
 
 
 function registrationCode(){return (new URLSearchParams(location.search).get('kayit')||'').toUpperCase()}
+function residentUnitOptions(selected=''){
+  return Object.keys(UNIT_UUIDS).sort((a,b)=>a.localeCompare(b)).map(c=>`<option value="${c}" ${c===selected?'selected':''}>${c.startsWith('D')?'Daire '+Number(c.slice(1)):c}</option>`).join('');
+}
+function residentApplicationForm(fixedCode=''){
+  const unitField=fixedCode
+    ? `<div class="notice"><b>Daire:</b> ${esc(fixedCode)}</div><input id="regUnit" type="hidden" value="${esc(fixedCode)}">`
+    : `<label>Daire Seç<select id="regUnit" required><option value="">Daire seçin</option>${residentUnitOptions()}</select></label>`;
+  return `<form class="stack" onsubmit="event.preventDefault();submitResidentApplication()">
+    ${unitField}
+    <label>Ad Soyad<input id="regName" autocomplete="name" required></label>
+    <label>Telefon Numarası<input id="regPhone" inputmode="tel" autocomplete="tel" required></label>
+    <label>E-posta Adresi<input id="regEmail" type="email" autocomplete="email" required></label>
+    <label>Durum<select id="regType" required><option value="tenant">Kiracı</option><option value="owner">Malik / Ev Sahibi</option></select></label>
+    <label>Sözleşme / Sorumluluk Başlangıç Tarihi<input id="regStart" type="date" required></label>
+    <label class="switch" style="align-items:flex-start"><input id="regConsent" type="checkbox" required><span>Bilgilerimin apartman yönetimi ve borç/tüketim takibi amacıyla kullanılmasını onaylıyorum.</span></label>
+    <div class="notice">Form yönetici onayına düşer. Yönetici onaylamadan sisteme giriş hesabı açılmaz.</div>
+    <button class="primary full" id="regSubmit">Onaya Gönder</button>
+    <div id="regMsg" class="small"></div>
+  </form>`;
+}
 function renderResidentRegistration(code){
-  const label=code.startsWith('D')?`DAİRE ${code.slice(1)}`:code==='S01'?'DÜKKAN 1 - GÜRMAR':code==='S02'?'DÜKKAN 2 - MİON':code;
-  return `<div class="app login"><div class="loginBox"><div class="loginLogo"><small>IBRA KAT</small><br><b>Yeni Sakin / İletişim Bilgisi</b><p class="muted">${esc(label)} için bilgilerinizi iletin. Kayıt yönetici onayından sonra aktifleşir.</p></div>
-  <form class="card stack" onsubmit="event.preventDefault();submitResidentApplication('${code}')">
-  <label>Ad Soyad / Kurum<input id="regName" required></label>
-  <label>Telefon<input id="regPhone" inputmode="tel" required></label>
-  <label>E-posta<input id="regEmail" type="email"></label>
-  <label>Statü<select id="regType"><option value="tenant">Kiracı</option><option value="owner">Malik</option><option value="occupant">Oturan</option><option value="business">İşyeri</option></select></label>
-  <label>Taşınma tarihi<input id="regMove" type="date"></label>
-  <label>Gider sorumluluğu başlangıç tarihi<input id="regStart" type="date" required></label>
-  <div class="grid3"><label>Toplam kişi<input id="regCount" type="number" min="1"></label><label>Yetişkin<input id="regAdult" type="number" min="0"></label><label>Çocuk<input id="regChild" type="number" min="0"></label></div>
-  <label>Araç sayısı<input id="regVehicleCount" type="number" min="0" value="0"></label><label>Plaka(lar)<input id="regPlates" placeholder="35 ABC 123, 35 XYZ 456"></label>
-  <label>Ev sahibinin adı (kiracıysa)<input id="regOwnerName"></label><label>Ev sahibinin telefonu<input id="regOwnerPhone" inputmode="tel"></label><label>Ev sahibinin e-postası<input id="regOwnerEmail" type="email"></label>
-  <label>Acil durumda aranacak kişi<input id="regEmergencyName"></label><label>Acil telefon<input id="regEmergencyPhone" inputmode="tel"></label>
-  <label class="switch"><input id="regWA" type="checkbox" checked> WhatsApp bilgilendirmesi</label><label class="switch"><input id="regMail" type="checkbox" checked> E-posta bilgilendirmesi</label><label class="switch"><input id="regSMS" type="checkbox"> SMS bilgilendirmesi</label>
-  <label class="switch"><input id="regConsent" type="checkbox" required> Verdiğim bilgilerin apartman yönetimi amacıyla işlenmesini ve doğruluğunu onaylıyorum.</label>
-  <button class="primary full" id="regSubmit">Bilgilerimi Gönder</button><div id="regMsg" class="small"></div></form></div></div>`
+  const label=code.startsWith('D')?`DAİRE ${Number(code.slice(1))}`:code;
+  return `<div class="app login"><div class="loginBox"><div class="loginLogo"><small>IBRA KAT</small><br><b>Kişi Kartı / Sisteme Kayıt</b><p class="muted">${esc(label)} için bilgilerinizi iletin. Yönetici onayından sonra hesabınız aktifleşir.</p></div><div class="card">${residentApplicationForm(code)}</div></div></div>`;
 }
-async function submitResidentApplication(code){
-  const btn=$('#regSubmit'),msg=$('#regMsg'); btn.disabled=true;btn.textContent='Gönderiliyor…';msg.textContent='';
+function openResidentJoinForm(){
+  openModal(`<h2>Kişi Kartı / Sisteme Kayıt</h2><p class="muted">Malik veya kiracı bilgilerini girin. Kayıt yönetici onayından sonra aktifleşir.</p>${residentApplicationForm('')}`);
+}
+async function submitResidentApplication(){
+  const btn=$('#regSubmit'),msg=$('#regMsg');
+  if(!btn||!msg)return;
+  btn.disabled=true;btn.textContent='Gönderiliyor…';msg.textContent='';
   try{
-    if(!publicSb||!UNIT_UUIDS[code])throw new Error('Bağlantı bilgisi bulunamadı.');
-    const payload={building_id:CONFIG.buildingId,unit_id:UNIT_UUIDS[code],full_name:$('#regName').value.trim(),phone:$('#regPhone').value.trim(),email:$('#regEmail').value.trim()||null,relationship_type:$('#regType').value,move_in_date:$('#regMove').value||null,responsibility_start:$('#regStart').value,household_count:Number($('#regCount').value)||null,adult_count:$('#regAdult').value===''?null:Number($('#regAdult').value),child_count:$('#regChild').value===''?null:Number($('#regChild').value),vehicle_count:Number($('#regVehicleCount').value)||0,vehicle_plates:$('#regPlates').value.trim()||null,owner_name:$('#regOwnerName').value.trim()||null,owner_phone:$('#regOwnerPhone').value.trim()||null,owner_email:$('#regOwnerEmail').value.trim()||null,emergency_name:$('#regEmergencyName').value.trim()||null,emergency_phone:$('#regEmergencyPhone').value.trim()||null,receive_whatsapp:$('#regWA').checked,receive_email:$('#regMail').checked,receive_sms:$('#regSMS').checked,consent:$('#regConsent').checked,status:'pending'};
-    const {error}=await publicSb.from('resident_applications').insert(payload); if(error)throw error;
-    document.querySelector('.loginBox').innerHTML=`<div class="card"><h2>Teşekkürler</h2><p>Bilgileriniz yönetim onayına gönderildi.</p><p class="muted small">Onaylanana kadar mevcut borç/sorumluluk kayıtları değişmez.</p></div>`;
-  }catch(e){msg.textContent='Kayıt gönderilemedi: '+(e.message||e);msg.className='small danger';btn.disabled=false;btn.textContent='Bilgilerimi Gönder'}
+    const code=$('#regUnit')?.value||'';
+    if(!publicSb||!UNIT_UUIDS[code])throw new Error('Daire seçimi gerekli.');
+    const email=$('#regEmail').value.trim().toLowerCase();
+    const payload={
+      building_id:CONFIG.buildingId,unit_id:UNIT_UUIDS[code],
+      full_name:$('#regName').value.trim(),phone:$('#regPhone').value.trim(),email,
+      relationship_type:$('#regType').value,responsibility_start:$('#regStart').value,
+      move_in_date:$('#regStart').value,receive_whatsapp:true,receive_email:true,receive_sms:false,
+      consent:$('#regConsent').checked,status:'pending'
+    };
+    const {error}=await publicSb.from('resident_applications').insert(payload);if(error)throw error;
+    const modal=$('#modalBack .modal');
+    const done=`<div class="notice ok"><h3>Başvurunuz alındı</h3><p>Bilgileriniz yönetici onayına gönderildi.</p><p class="small">Onaydan sonra giriş hesabınız açılacak ve kendi dairenizin borç, ödeme ve tüketim bilgilerini takip edebileceksiniz.</p></div>`;
+    if(modal)modal.innerHTML=done;else document.querySelector('.loginBox').innerHTML=`<div class="card">${done}</div>`;
+  }catch(e){
+    msg.textContent='Kayıt gönderilemedi: '+(e.message||e);msg.className='small danger';
+    btn.disabled=false;btn.textContent='Onaya Gönder';
+  }
 }
-
-
 
 // ===== V1.15: Gider belgesi ↔ banka çıkışı mutabakatı + hızlı sayaç daire seçimi =====
 let meterAutoAdvance = true;
@@ -2220,7 +2319,7 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='driveBackups')adminDriveBackups().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='driveBackups')adminDriveBackups().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='residentApprovals')managerResidentApprovals().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
     if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerPeriodDetail')app.innerHTML=caretakerPeriodDetail(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
