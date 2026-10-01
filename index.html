@@ -508,7 +508,7 @@ function adminMainNav(){
   return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'unitHub',ico:'🏠',label:'Daire Yönetimi'},{id:'financeHub',ico:'₺',label:'Finans'},{id:'activityLogs',ico:'🧾',label:'Loglar'},{id:'library',ico:'▤',label:'Kütüphane'}];
 }
 function caretakerMainNav(){
-  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'},{id:'myLeaves',ico:'🌴',label:'İzinlerim'}];
+  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'invoices',ico:'🧾',label:'Faturalar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'}];
 }
 function residentOverdueInfo(unitId){
   return overdueUnits().find(x=>x.u.id===unitId)||null;
@@ -644,7 +644,7 @@ function createCaretakerPeriod(){
   state.periods.unshift(p);activePeriodId=p.id;saveState();logAudit('Dönem kat görevlisi tarafından başlatıldı',month);closeModal();route='caretakerPeriods';render();notify('Yeni dönem taslak olarak açıldı.');
 }
 function caretakerOperations(){
-  return shell(`<div><h2>İşlemler</h2><div class="muted small">Günlük operasyon ekranları</div></div><div class="grid2" style="margin-top:10px"><button class="card" onclick="go('expenses')"><h3>Gider / Ödeme</h3><div class="muted small">Fiş, fatura ve banka çıkışları</div></button><button class="card" onclick="go('history')"><h3>Daire Geçmişi</h3><div class="muted small">Tüketim, borç ve tahsilat geçmişi</div></button><button class="card" onclick="go('library')"><h3>Kütüphane</h3><div class="muted small">Hesaplama yöntemi, kararlar ve önemli numaralar</div></button></div>`,caretakerMainNav());
+  return shell(`<div><h2>İşlemler</h2><div class="muted small">Günlük operasyon ekranları</div></div><div class="grid2" style="margin-top:10px"><button class="card" onclick="go('expenses')"><h3>Gider / Ödeme</h3><div class="muted small">Diğer giderler, fişler ve banka çıkışları</div></button><button class="card" onclick="go('history')"><h3>Daire Geçmişi</h3><div class="muted small">Tüketim, borç ve tahsilat geçmişi</div></button><button class="card" onclick="go('myLeaves')"><h3>İzinlerim</h3><div class="muted small">İzin talebi oluştur ve durumunu takip et</div></button><button class="card" onclick="go('library')"><h3>Kütüphane</h3><div class="muted small">Hesaplama yöntemi, kararlar ve önemli numaralar</div></button></div>`,caretakerMainNav());
 }
 function reportTypeLabel(t){return t==='debts'?'Borçlar':t==='consumptions'?'Tüketimler':'Gelir - Gider'}
 async function managerReportArchive(){
