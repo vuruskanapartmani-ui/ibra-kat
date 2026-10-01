@@ -49,6 +49,13 @@
 .meterSaveDock{position:fixed;z-index:15;left:max(10px,calc((100vw - 980px)/2 + 10px));right:max(10px,calc((100vw - 980px)/2 + 10px));bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 8px)}
 .meterSaveNext{width:100%;min-height:58px;font-size:17px;font-weight:900;box-shadow:0 8px 24px rgba(16,90,130,.22)}
 .meterSaveNext span{font-size:22px;margin-left:6px}
+.meterTypeTabs.waterGasTabs{grid-template-columns:repeat(2,1fr)}
+.meterDualRow{border:1px solid var(--line);border-radius:14px;padding:10px;margin-top:8px;background:#f8fafc}
+.meterDualTitle{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+.meterDualTitle span{font-size:12px;color:var(--muted)}
+.meterDualRow input{margin:0;min-height:52px;background:#fff;font-size:25px;font-weight:900;text-align:center}
+.meterDualRow .result{margin-top:6px}
+
 @media(max-width:700px){.meterFastScreen{min-height:calc(100dvh - 155px);gap:7px}.meterFastCard{padding:10px}.meterFastCard h2{font-size:21px;margin:3px 0 7px}.meterValues{grid-template-columns:.75fr 1.25fr}.meterPrevBox,.meterInputBox{padding:7px 8px}.meterPrevBox b{font-size:19px;line-height:39px}.meterInputBox input{font-size:25px}.meterFastSecondary{margin-top:6px}.meterSaveDock{left:8px;right:8px}}
 .reconGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.reconCard{border-radius:13px;padding:11px;border:1px solid var(--line)}.reconCard.okbg{background:var(--okbg)}.reconCard.warnbg{background:var(--warnbg)}.reconCard.badbg{background:var(--dangerbg)}.matchRow{border-left:5px solid #94a3b8}.matchRow.matched{border-left-color:#16a34a}.matchRow.missing{border-left-color:#e67e4f}.matchRow.unpaid{border-left-color:#d89b00}@media(max-width:700px){.reconGrid{grid-template-columns:1fr}.meterJump{grid-template-columns:1fr}}
 
@@ -1836,30 +1843,41 @@ async function submitResidentApplication(code){
 let meterAutoAdvance = true;
 let pendingExpenseOcrText = '';
 
-function meterDoneCount(type){
-  const p=period();
-  return state.meterReadings.filter(x=>x.periodId===p.id&&x.type===type).length;
+function meterUnitComplete(u,mode,p=period()){
+  if(mode==='water'){
+    const cold=state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='cold');
+    const hot=state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='hot');
+    return cold&&hot;
+  }
+  return state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='gas');
 }
-function meterFirstMissingIndex(type){
+function meterDoneCount(mode){
   const p=period(),units=meterUnits();
-  const idx=units.findIndex(u=>!state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===u.id&&r.type===type));
-  return idx>=0?idx:0;
+  return units.filter(u=>meterUnitComplete(u,mode,p)).length;
+}
+function meterFirstMissingIndex(mode){
+  const p=period(),units=meterUnits();
+  for(let i=units.length-1;i>=0;i--){
+    if(!meterUnitComplete(units[i],mode,p))return i;
+  }
+  return units.length-1;
 }
 function prepareMeterFastEntry(force=false){
   const p=period();
-  if(meterContext.type==='gas'&&!p.boilerActive)meterContext.type='cold';
+  if(!['water','gas'].includes(meterContext.type))meterContext.type='water';
+  if(meterContext.type==='gas'&&!p.boilerActive)meterContext.type='water';
   if(force||meterContext.periodId!==p.id){
     meterContext.periodId=p.id;
-    meterContext.type=(meterContext.type==='hot'||(meterContext.type==='gas'&&p.boilerActive))?meterContext.type:'cold';
     meterContext.index=meterFirstMissingIndex(meterContext.type);
   }
 }
 function meterSetType(type){
   const p=period();
-  if(type==='gas'&&!p.boilerActive){notify('Kombi kapalı; gaz sayaç girişi gerekmiyor.');return}
-  meterContext.type=type;
+  const mode=(type==='cold'||type==='hot')?'water':type;
+  if(mode==='gas'&&!p.boilerActive){notify('Kombi kapalı; gaz sayaç girişi gerekmiyor.');return}
+  meterContext.type=mode==='gas'?'gas':'water';
   meterContext.periodId=p.id;
-  meterContext.index=meterFirstMissingIndex(type);
+  meterContext.index=meterFirstMissingIndex(meterContext.type);
 }
 function meterJumpToIndex(idx){
   idx=Number(idx);const units=meterUnits();
@@ -1868,19 +1886,25 @@ function meterJumpToIndex(idx){
 }
 function meterJumpToCode(code){const units=meterUnits(),idx=units.findIndex(u=>u.code===code);if(idx>=0)meterJumpToIndex(idx)}
 function meterJumpNextMissing(){
-  const p=period(),units=meterUnits(),type=meterContext.type;
+  const p=period(),units=meterUnits(),mode=meterContext.type;
   for(let step=1;step<=units.length;step++){
-    const idx=(meterContext.index+step)%units.length,u=units[idx];
-    if(!state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type===type)){
+    let idx=meterContext.index-step;
+    while(idx<0)idx+=units.length;
+    const u=units[idx];
+    if(!meterUnitComplete(u,mode,p)){
       meterContext.index=idx;render();meterFocusInput();return;
     }
   }
-  notify('Bu sayaç türünde eksik daire kalmadı.');
+  notify(mode==='water'?'Soğuk + sıcak su girişlerinde eksik daire kalmadı.':'Gaz girişlerinde eksik daire kalmadı.');
 }
 function toggleMeterAutoAdvance(){meterAutoAdvance=true}
 function meterFocusInput(){
   setTimeout(()=>{
-    const el=$('#meterNew');
+    let el=null;
+    if(meterContext.type==='water'){
+      const cold=$('#meterColdNew'),hot=$('#meterHotNew');
+      el=(cold&&String(cold.value).trim()==='')?cold:((hot&&String(hot.value).trim()==='')?hot:cold);
+    }else el=$('#meterGasNew');
     if(!el)return;
     try{el.focus({preventScroll:true});el.select()}catch(e){el.focus()}
     el.scrollIntoView({block:'center',behavior:'smooth'});
@@ -1888,117 +1912,156 @@ function meterFocusInput(){
 }
 function meterEntry(){
   prepareMeterFastEntry(false);
-  const p=period(),units=meterUnits(),u=units[meterContext.index],type=meterContext.type;
-  const labels={cold:'Soğuk Su',hot:'Sıcak Su',gas:'Gaz'},icons={cold:'💧',hot:'♨️',gas:'🔥'};
-  const prev=findPreviousReading(u.id,type,p);
-  const existing=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type===type);
-  const curr=existing?.current??'';
-  const done=meterDoneCount(type);
-  const options=units.map((x,i)=>`<option value="${i}" ${i===meterContext.index?'selected':''}>${x.label}${state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===x.id&&r.type===type)?' ✓':''}</option>`).join('');
-  const gasDisabled=!p.boilerActive;
-  const c=`<div class="meterFastScreen">
-    <div class="meterFastTop">
-      <div>
-        <div class="small muted">${isoMonthLabel(p.month)} · Sayaç Girişi</div>
-        <b>${done}/33 tamamlandı</b>
-      </div>
-      <button type="button" class="meterMissingBtn" onclick="meterJumpNextMissing()">Sonraki eksik</button>
-    </div>
+  const p=period(),units=meterUnits(),u=units[meterContext.index],mode=meterContext.type;
+  const done=meterDoneCount(mode),gasDisabled=!p.boilerActive;
+  const options=[...units].map((x,i)=>({x,i})).reverse().map(({x,i})=>{
+    let mark='';
+    if(mode==='water'){
+      const cold=state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===x.id&&r.type==='cold');
+      const hot=state.meterReadings.some(r=>r.periodId===p.id&&r.unitId===x.id&&r.type==='hot');
+      mark=cold&&hot?' ✓':(cold||hot?' •':'');
+    }else mark=meterUnitComplete(x,'gas',p)?' ✓':'';
+    return `<option value="${i}" ${i===meterContext.index?'selected':''}>${x.label}${mark}</option>`;
+  }).join('');
+  const nextLabel=meterContext.index>0?(units[meterContext.index-1]?.label||'Sonraki daire'):'Bitir';
+  const backLabel=meterContext.index<units.length-1?(units[meterContext.index+1]?.label||'Geri'):'—';
 
-    <div class="meterTypeTabs">
-      <button type="button" class="${type==='cold'?'active':''}" onclick="meterSetType('cold');render();meterFocusInput()">💧 Soğuk</button>
-      <button type="button" class="${type==='hot'?'active':''}" onclick="meterSetType('hot');render();meterFocusInput()">♨️ Sıcak</button>
-      <button type="button" ${gasDisabled?'disabled':''} class="${type==='gas'?'active':''}" onclick="meterSetType('gas');render();meterFocusInput()">🔥 Gaz</button>
-    </div>
-
-    <div class="meterFastUnit">
-      <label>Daire
-        <select id="meterJumpSel" onchange="meterJumpToIndex(this.value)">${options}</select>
-      </label>
-      <div class="meterUnitPos">${meterContext.index+1}/33</div>
-    </div>
-
-    <div class="meterFastCard">
-      <div class="meterFastHead">
-        <div><span class="meterTypeIcon">${icons[type]}</span><span class="small muted">${labels[type]}</span></div>
-        ${existing?'<span class="pill ok">✓ Kayıtlı</span>':'<span class="pill warn">Bekliyor</span>'}
-      </div>
+  let card='';
+  if(mode==='water'){
+    const prevCold=findPreviousReading(u.id,'cold',p),prevHot=findPreviousReading(u.id,'hot',p);
+    const exCold=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type==='cold');
+    const exHot=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type==='hot');
+    const cold=exCold?.current??'',hot=exHot?.current??'';
+    const status=exCold&&exHot?'<span class="pill ok">✓ İkisi de kayıtlı</span>':(exCold||exHot?'<span class="pill warn">Kısmi kayıt</span>':'<span class="pill warn">Bekliyor</span>');
+    card=`<div class="meterFastCard">
+      <div class="meterFastHead"><div><span class="meterTypeIcon">💧</span><span class="small muted">Soğuk + Sıcak Su</span></div>${status}</div>
       <h2>${u.label}</h2>
-
-      <div class="meterValues">
-        <div class="meterPrevBox"><span>Önceki endeks</span><b>${prev}</b></div>
-        <label class="meterInputBox"><span>Yeni endeks</span>
-          <input id="meterNew" inputmode="decimal" enterkeyhint="next" autocomplete="off" value="${curr}" oninput="validateMeterInput(${prev})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext(${prev})}" placeholder="Değeri gir">
-        </label>
+      <div class="meterDualRow">
+        <div class="meterDualTitle"><b>💧 Soğuk Su</b><span>Önceki: <b>${prevCold}</b></span></div>
+        <input id="meterColdNew" inputmode="decimal" enterkeyhint="next" autocomplete="off" value="${cold}" oninput="validateWaterInput('cold',${prevCold})" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('meterHotNew')?.focus();document.getElementById('meterHotNew')?.select()}" placeholder="Yeni soğuk su endeksi">
+        <div id="meterColdResult" class="result ${cold!==''&&Number(cold)<prevCold?'bad':''}">${cold!==''?meterResultText(cold,prevCold,'cold'):'Yeni endeksi gir.'}</div>
       </div>
-      <div id="meterResult" class="result ${curr&&Number(curr)<prev?'bad':''}">${curr!==''?meterResultText(curr,prev,type):'Değeri gir; tüketim otomatik hesaplanır.'}</div>
-
+      <div class="meterDualRow">
+        <div class="meterDualTitle"><b>♨️ Sıcak Su</b><span>Önceki: <b>${prevHot}</b></span></div>
+        <input id="meterHotNew" inputmode="decimal" enterkeyhint="go" autocomplete="off" value="${hot}" oninput="validateWaterInput('hot',${prevHot})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext()}" placeholder="Yeni sıcak su endeksi">
+        <div id="meterHotResult" class="result ${hot!==''&&Number(hot)<prevHot?'bad':''}">${hot!==''?meterResultText(hot,prevHot,'hot'):'Yeni endeksi gir.'}</div>
+      </div>
       <div class="meterFastSecondary">
-        <button type="button" onclick="meterPrev()">‹ Önceki daire</button>
+        <button type="button" ${meterContext.index===units.length-1?'disabled':''} onclick="meterBack()">‹ ${backLabel==='—'?'Geri':backLabel}</button>
         <button type="button" onclick="captureMeterPhoto()">📷 Fotoğraf</button>
       </div>
-    </div>
+    </div>`;
+  }else{
+    const prev=findPreviousReading(u.id,'gas',p);
+    const existing=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type==='gas');
+    const curr=existing?.current??'';
+    card=`<div class="meterFastCard">
+      <div class="meterFastHead"><div><span class="meterTypeIcon">🔥</span><span class="small muted">Gaz</span></div>${existing?'<span class="pill ok">✓ Kayıtlı</span>':'<span class="pill warn">Bekliyor</span>'}</div>
+      <h2>${u.label}</h2>
+      <div class="meterValues">
+        <div class="meterPrevBox"><span>Önceki endeks</span><b>${prev}</b></div>
+        <label class="meterInputBox"><span>Yeni endeks</span><input id="meterGasNew" inputmode="decimal" enterkeyhint="go" autocomplete="off" value="${curr}" oninput="validateMeterInput(${prev})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext()}" placeholder="Değeri gir"></label>
+      </div>
+      <div id="meterResult" class="result ${curr!==''&&Number(curr)<prev?'bad':''}">${curr!==''?meterResultText(curr,prev,'gas'):'Değeri gir; tüketim otomatik hesaplanır.'}</div>
+      <div class="meterFastSecondary">
+        <button type="button" ${meterContext.index===units.length-1?'disabled':''} onclick="meterBack()">‹ ${backLabel==='—'?'Geri':backLabel}</button>
+        <button type="button" onclick="captureMeterPhoto()">📷 Fotoğraf</button>
+      </div>
+    </div>`;
+  }
 
+  const c=`<div class="meterFastScreen">
+    <div class="meterFastTop">
+      <div><div class="small muted">${isoMonthLabel(p.month)} · Sayaç Girişi</div><b>${done}/33 daire tamamlandı · Sıra 33 → 1</b></div>
+      <button type="button" class="meterMissingBtn" onclick="meterJumpNextMissing()">Sonraki eksik</button>
+    </div>
+    <div class="meterTypeTabs waterGasTabs">
+      <button type="button" class="${mode==='water'?'active':''}" onclick="meterSetType('water');render();meterFocusInput()">💧 Su</button>
+      <button type="button" ${gasDisabled?'disabled':''} class="${mode==='gas'?'active':''}" onclick="meterSetType('gas');render();meterFocusInput()">🔥 Gaz</button>
+    </div>
+    <div class="meterFastUnit">
+      <label>Daire<select id="meterJumpSel" onchange="meterJumpToIndex(this.value)">${options}</select></label>
+      <div class="meterUnitPos">${u.code||u.label}</div>
+    </div>
+    ${card}
     <div class="meterSaveDock">
-      <button class="primary meterSaveNext" onclick="saveMeterNext(${prev})">Kaydet ve Devam Et <span>›</span></button>
+      <button class="primary meterSaveNext" onclick="saveMeterNext()">${meterContext.index>0?`İkisini Kaydet → ${nextLabel}`:(mode==='water'&&p.boilerActive?'İkisini Kaydet · Gaza Geç':'Kaydet ve Bitir')} <span>›</span></button>
     </div>
   </div>`;
   setTimeout(meterFocusInput,0);
   return shell(c,caretakerMainNav());
 }
 function meterResultText(curr,prev,type){
-  const n=Number(curr);
+  const n=Number(String(curr).replace(',','.'));
   if(!Number.isFinite(n))return 'Geçerli sayı girin.';
   if(n<prev)return '⚠ Yeni değer önceki endeksten düşük olamaz.';
   const c=(n-prev)/1000;
   return `Tüketim: <b>${trNum(c,3)}${type==='gas'?'':' m³'}</b>`;
 }
+function validateWaterInput(type,prev){
+  const id=type==='cold'?'meterColdNew':'meterHotNew',rid=type==='cold'?'meterColdResult':'meterHotResult';
+  const el=$('#'+id),res=$('#'+rid);if(!el||!res)return;
+  res.innerHTML=meterResultText(el.value,prev,type);
+  res.classList.toggle('bad',Number(String(el.value).replace(',','.'))<prev);
+}
 function validateMeterInput(prev){
-  const el=$('#meterNew'),res=$('#meterResult');
+  const el=$('#meterGasNew'),res=$('#meterResult');
   if(!el||!res)return;
-  res.innerHTML=meterResultText(el.value,prev,meterContext.type);
-  res.classList.toggle('bad',Number(el.value)<prev);
+  res.innerHTML=meterResultText(el.value,prev,'gas');
+  res.classList.toggle('bad',Number(String(el.value).replace(',','.'))<prev);
 }
 function captureMeterPhoto(){
   const i=$('#cameraInput');i.value='';
   i.onchange=()=>{if(i.files?.[0])notify('Sayaç fotoğrafı alındı.')};
   i.click();
 }
-function saveMeterDraft(prev){saveMeter(prev,false)}
-function saveMeterNext(prev){
-  if(!saveMeter(prev,true))return;
-  const p=period(),units=meterUnits(),type=meterContext.type;
-  if(meterContext.index<units.length-1){
-    meterContext.index++;
-    render();meterFocusInput();return;
-  }
-  const nextType=type==='cold'?'hot':(type==='hot'&&p.boilerActive?'gas':null);
-  if(nextType){
-    meterContext.type=nextType;
-    meterContext.index=meterFirstMissingIndex(nextType);
-    notify((type==='cold'?'Soğuk su':'Sıcak su')+' tamamlandı. '+(nextType==='hot'?'Sıcak suya':'Gaza')+' geçildi.');
-    render();meterFocusInput();return;
-  }
-  notify('Sayaç girişleri tamamlandı.');
-  route='meters';render();
-}
-function meterPrev(){
-  if(meterContext.index>0){meterContext.index--;render();meterFocusInput()}
-}
-function saveMeter(prev,advance){
-  const raw=String($('#meterNew')?.value??'').trim().replace(',','.');
-  const value=Number(raw);
-  if(!raw||!Number.isFinite(value)||value<prev){
-    notify(!raw?'Yeni endeksi gir.':'Yeni değer önceki endeksten düşük olamaz.');
-    meterFocusInput();return false;
-  }
-  const units=meterUnits(),u=units[meterContext.index],p=period(),type=meterContext.type;
+function upsertMeterReading(u,p,type,prev,value){
   let r=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type===type);
   if(!r){r={id:uid('m'),periodId:p.id,unitId:u.id,type};state.meterReadings.push(r)}
   Object.assign(r,{previous:prev,current:value,consumption:(value-prev)/1000,verified:true});
-  saveState();logAudit('Sayaç kaydedildi',`${p.month} · ${u.label} · ${type}`);
+}
+function saveWaterPair(){
+  const p=period(),units=meterUnits(),u=units[meterContext.index];
+  const prevCold=findPreviousReading(u.id,'cold',p),prevHot=findPreviousReading(u.id,'hot',p);
+  const coldRaw=String($('#meterColdNew')?.value??'').trim().replace(',','.');
+  const hotRaw=String($('#meterHotNew')?.value??'').trim().replace(',','.');
+  const cold=Number(coldRaw),hot=Number(hotRaw);
+  if(!coldRaw||!Number.isFinite(cold)||cold<prevCold){notify(!coldRaw?'Soğuk su endeksini gir.':'Soğuk su değeri önceki endeksten düşük olamaz.');$('#meterColdNew')?.focus();return false}
+  if(!hotRaw||!Number.isFinite(hot)||hot<prevHot){notify(!hotRaw?'Sıcak su endeksini gir.':'Sıcak su değeri önceki endeksten düşük olamaz.');$('#meterHotNew')?.focus();return false}
+  upsertMeterReading(u,p,'cold',prevCold,cold);
+  upsertMeterReading(u,p,'hot',prevHot,hot);
+  saveState();logAudit('Su sayaçları kaydedildi',`${p.month} · ${u.label} · soğuk + sıcak`);
   return true;
 }
+function saveGasReading(){
+  const p=period(),units=meterUnits(),u=units[meterContext.index],prev=findPreviousReading(u.id,'gas',p);
+  const raw=String($('#meterGasNew')?.value??'').trim().replace(',','.'),value=Number(raw);
+  if(!raw||!Number.isFinite(value)||value<prev){notify(!raw?'Gaz endeksini gir.':'Gaz değeri önceki endeksten düşük olamaz.');$('#meterGasNew')?.focus();return false}
+  upsertMeterReading(u,p,'gas',prev,value);
+  saveState();logAudit('Gaz sayacı kaydedildi',`${p.month} · ${u.label}`);
+  return true;
+}
+function saveMeterDraft(){const ok=meterContext.type==='water'?saveWaterPair():saveGasReading();if(ok)notify('Kaydedildi.')}
+function saveMeterNext(){
+  const ok=meterContext.type==='water'?saveWaterPair():saveGasReading();if(!ok)return;
+  const p=period();
+  if(meterContext.index>0){
+    meterContext.index--;render();meterFocusInput();return;
+  }
+  if(meterContext.type==='water'&&p.boilerActive){
+    meterContext.type='gas';meterContext.index=meterFirstMissingIndex('gas');
+    notify('Su sayaçları tamamlandı. Gaz girişine D33’ten devam ediliyor.');
+    render();meterFocusInput();return;
+  }
+  notify(meterContext.type==='water'?'Su sayaçları tamamlandı.':'Sayaç girişleri tamamlandı.');
+  route='caretakerPeriods';render();
+}
+function meterBack(){
+  const units=meterUnits();
+  if(meterContext.index<units.length-1){meterContext.index++;render();meterFocusInput()}
+}
+function meterPrev(){meterBack()}
+function saveMeter(){return meterContext.type==='water'?saveWaterPair():saveGasReading()}
 
 function expenseBankTx(exp){return exp?.bankTransactionId?state.bankTransactions.find(t=>t.id===exp.bankTransactionId):null}
 function outgoingBankTxs(){return state.bankTransactions.filter(t=>Number(t.amount)<0)}
@@ -2066,7 +2129,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
+window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 // Service worker disabled in portable iOS build
 render();
