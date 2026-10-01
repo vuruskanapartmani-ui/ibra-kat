@@ -1099,8 +1099,19 @@ async function approveResidentApplication(id){
   if(!confirm(`${a.full_name} · ${code} kaydı onaylansın ve giriş hesabı açılsın mı?`))return;
   const temp=generatedTemporaryPassword();
   try{
-    await authCall('admin_create',{username:code,display_name:a.full_name,recovery_email:a.email,role:a.relationship_type,password:temp},true);
-    const {data,error}=await publicSb.rpc('manager_review_resident_application',{p_application_id:id,p_decision:'approved',p_manager_note:null});
+    const list=await authCall('admin_list',{},true);
+    const existing=(list.accounts||[]).find(x=>
+      String(x.username||'').toUpperCase()===code &&
+      String(x.recovery_email||'').toLowerCase()===String(a.email||'').toLowerCase() &&
+      x.account_role===a.relationship_type
+    );
+    if(existing){
+      if(!existing.active)await authCall('admin_set_active',{account_id:existing.id,active:true},true);
+      await authCall('admin_reset_password',{account_id:existing.id,password:temp},true);
+    }else{
+      await authCall('admin_create',{username:code,display_name:a.full_name,recovery_email:a.email,role:a.relationship_type,password:temp},true);
+    }
+    const {error}=await publicSb.rpc('manager_review_resident_application',{p_application_id:id,p_decision:'approved',p_manager_note:null});
     if(error)throw error;
     const u=state.units.find(x=>x.code===code);
     if(u){
@@ -1108,7 +1119,8 @@ async function approveResidentApplication(id){
       if(!p){p={id:uid('person'),name:a.full_name,email:a.email,phone:a.phone,kind:a.relationship_type,source:'approved_application'};state.people.push(p)}
       else Object.assign(p,{name:a.full_name,email:a.email,phone:a.phone,kind:a.relationship_type});
       if(a.relationship_type==='tenant')state.responsibilities.filter(x=>x.unitId===u.id&&x.role==='tenant'&&x.active).forEach(x=>{x.active=false;x.loginEnabled=false;x.endDate=a.responsibility_start});
-      state.responsibilities.push({id:uid('r'),unitId:u.id,personId:p.id,role:a.relationship_type,startDate:a.responsibility_start,endDate:null,active:true,loginEnabled:true,source:'approved_application'});
+      const relExists=state.responsibilities.some(x=>x.unitId===u.id&&x.personId===p.id&&x.role===a.relationship_type&&x.active);
+      if(!relExists)state.responsibilities.push({id:uid('r'),unitId:u.id,personId:p.id,role:a.relationship_type,startDate:a.responsibility_start,endDate:null,active:true,loginEnabled:true,source:'approved_application'});
       saveState();
     }
     openModal(`<h2>Hesap Açıldı</h2><div class="notice ok"><b>${esc(a.full_name)}</b> artık sisteme giriş yapabilir.</div><div class="card" style="margin-top:10px"><div class="row"><span>Kullanıcı adı</span><b>${esc(code)}</b></div><div class="row"><span>Geçici şifre</span><b style="font-size:20px">${esc(temp)}</b></div><div class="row"><span>E-posta</span><b>${esc(a.email)}</b></div></div><div class="notice warn" style="margin-top:10px">Bu geçici şifreyi kullanıcıya iletin. İlk girişte kendi şifresini belirlemesi istenir.</div><button class="primary full" style="margin-top:10px" onclick="closeModal();go('residentApprovals')">Tamam</button>`);
