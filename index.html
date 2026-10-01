@@ -569,7 +569,7 @@ function adminMainNav(){
   return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'unitHub',ico:'🏠',label:'Daire Yönetimi'},{id:'financeHub',ico:'₺',label:'Finans'},{id:'activityLogs',ico:'🧾',label:'Loglar'},{id:'library',ico:'▤',label:'Kütüphane'}];
 }
 function caretakerMainNav(){
-  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'invoices',ico:'🧾',label:'Faturalar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'}];
+  return [{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'caretakerPeriods',ico:'◫',label:'Dönemler'},{id:'meters',ico:'📟',label:'Sayaçlar'},{id:'caretakerOps',ico:'☰',label:'İşlemler'},{id:'myLeaves',ico:'🌴',label:'İzinlerim'}];
 }
 function residentOverdueInfo(unitId){
   return overdueUnits().find(x=>x.u.id===unitId)||null;
@@ -685,9 +685,39 @@ async function saveLeaveReview(id,decision){
   try{await authCall('leave_review',{request_id:id,decision,manager_note:$('#leaveManagerNote').value||null},true);closeModal();notify('İzin talebi güncellendi.');route='leaveManagement';render()}catch(e){notify(e.message||'İşlem başarısız.')}
 }
 function caretakerPeriods(){
-  const rows=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month)).map(p=>`<div class="listitem"><div class="sectionHead"><div><b>${isoMonthLabel(p.month)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'} · Aidat ${trMoney(p.dues)}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div></div>`).join('');
-  return shell(`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Kat görevlisi yeni dönemi başlatabilir; kesinleştirme admin kontrolünde kalır.</div></div><button class="primary" onclick="openCaretakerNewPeriod()">+ Yeni Dönem</button></div><div class="list" style="margin-top:10px">${rows}</div>`,caretakerMainNav());
+  const rows=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month)).map(p=>{
+    const inv=state.invoices.filter(x=>x.periodId===p.id&&['water','gas','electric'].includes(x.type));
+    const complete=['water','gas','electric'].filter(t=>inv.some(x=>x.type===t&&x.status==='approved')).length;
+    return `<div class="listitem click" onclick="activePeriodId='${p.id}';route='caretakerPeriodDetail';render()">
+      <div class="sectionHead">
+        <div><b>${isoMonthLabel(p.month)}</b>
+          <div class="small muted">Son ödeme: ${p.dueDate||'—'} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'} · Aidat ${trMoney(p.dues)}</div>
+          <div class="small muted" style="margin-top:4px">Ana faturalar: ${complete}/3 onaylı</div>
+        </div>
+        <div style="text-align:right"><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span><div style="margin-top:7px"><b>Aç ›</b></div></div>
+      </div>
+    </div>`;
+  }).join('');
+  return shell(`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Sayaçlar ile su, doğalgaz ve elektrik faturaları ilgili ayın içinde tutulur.</div></div><button class="primary" onclick="openCaretakerNewPeriod()">+ Yeni Dönem</button></div><div class="list" style="margin-top:10px">${rows}</div>`,caretakerMainNav());
 }
+function utilityExpenseCategory(type){return type==='water'?'İZSU':type==='gas'?'İzmirgaz':type==='electric'?'Elektrik':'Diğer'}
+function utilityExpenseDescription(type){return type==='water'?'Su Faturası':type==='gas'?'Doğalgaz Faturası':type==='electric'?'Elektrik Faturası':'Fatura'}
+function periodUtilityInvoices(periodId){return state.invoices.filter(x=>x.periodId===periodId&&['water','gas','electric'].includes(x.type))}
+function caretakerPeriodDetail(){
+  const p=period(),all=periodUtilityInvoices(p.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const latest=t=>all.find(x=>x.type===t);
+  const card=(type,label,ico)=>{
+    const r=latest(type);
+    return `<div class="card"><div class="sectionHead"><div><h3>${ico} ${label}</h3><div class="small muted">${r?(r.date||'—')+' · '+(r.status==='approved'?'Kontrol edildi':'Taslak'):'Henüz girilmedi'}</div></div>${r?`<b>${trMoney(r.amount)}</b>`:'<span class="pill warn">EKSİK</span>'}</div><button class="${r?'':'primary'} full" style="margin-top:9px" onclick="openInvoiceForm(${r?`'${r.id}'`:'null'},'${type}')">${r?'Düzelt / Kontrol Et':'Faturayı Gir'}</button></div>`;
+  };
+  const history=all.map(i=>`<div class="listitem"><div class="sectionHead"><div><b>${invoiceTypeLabel(i.type)}</b><div class="small muted">${i.date||'—'} · ${esc(i.fileName||'Belge yok')}</div></div><div style="text-align:right"><b>${trMoney(i.amount)}</b><div class="small ${i.status==='approved'?'ok':'warn'}">${i.status==='approved'?'✓ Onaylı':'Taslak'}</div></div></div></div>`).join('');
+  return shell(`<div class="sectionHead"><div><button onclick="go('caretakerPeriods')">‹ Dönemler</button><h2 style="margin-top:8px">${isoMonthLabel(p.month)}</h2><div class="muted small">Bu aya ait sayaçlar ve ana faturalar</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div>
+    <div class="grid3" style="margin-top:10px">${card('water','Su','💧')}${card('gas','Doğalgaz','🔥')}${card('electric','Elektrik','⚡')}</div>
+    <div class="notice" style="margin-top:10px"><b>Muhasebe kuralı:</b> Su, doğalgaz ve elektrik faturaları bu döneme bağlı tutulur; her biri ayrıca gider kaydı olarak Finans / Gelir-Gider hesabına girer.</div>
+    <div class="actions" style="margin-top:10px"><button class="primary" onclick="go('meters')">Sayaç Girişine Git</button><button onclick="go('expenses')">Diğer Giderler</button></div>
+    <div class="card" style="margin-top:10px"><div class="sectionHead"><div><h3>Fatura Geçmişi</h3><div class="small muted">Aynı türden önceki kayıtlar da silinmez.</div></div><b>${all.length} kayıt</b></div><div class="list" style="margin-top:8px">${history||'<div class="notice">Henüz fatura girilmedi.</div>'}</div></div>`,caretakerMainNav());
+}
+
 function openCaretakerNewPeriod(){
   openModal(`<h2>Yeni Dönem Başlat</h2><form class="stack" onsubmit="event.preventDefault();createCaretakerPeriod()">
     <label>Dönem<input id="cpMonth" type="month" required></label>
@@ -1492,7 +1522,7 @@ function invoiceTypeLabel(t){return ({water:'💧 Su Faturası',gas:'🔥 Doğal
 let editingInvoiceId=null;
 let pendingInvoiceFile=null;
 let lastInvoiceOcrText='';
-function openInvoiceForm(id=null){
+function openInvoiceForm(id=null,prefType=null){
   editingInvoiceId=id;
   const r=id?state.invoices.find(x=>x.id===id):null;
   pendingInvoiceFile=null; lastInvoiceOcrText=r?.ocrText||'';
@@ -1520,6 +1550,7 @@ function openInvoiceForm(id=null){
     <div class="actions"><button type="button" onclick="saveInvoice(false)">Taslak Kaydet</button><button class="primary">Kontrol Ettim · Onayla ve Kaydet</button></div>
   </form>`);
   if(r) $('#invType').value=r.type;
+  else if(prefType) $('#invType').value=prefType;
   toggleInvoiceFields();
 }
 function toggleInvoiceFields(){const t=$('#invType')?.value;if(!t)return;$('#waterFields').classList.toggle('hidden',t!=='water');$('#gasFields').classList.toggle('hidden',t!=='gas')}
@@ -1580,18 +1611,49 @@ async function runInvoiceOcr(file){
     const chk=$('#invReviewed');if(chk)chk.checked=false;
   }catch(e){console.warn(e);st.className='notice bad';st.innerHTML='<b>Fotoğraf okunamadı.</b> Alanları elle doldurabilirsiniz; kayıt yine kontrol/onay adımından geçecektir.';}
 }
-function saveInvoice(approve){
+function syncUtilityInvoiceExpense(rec){
+  if(!rec||!['water','gas','electric'].includes(rec.type))return;
+  let e=state.expenses.find(x=>x.utilityInvoiceId===rec.id);
+  if(!e){e={id:uid('exp'),utilityInvoiceId:rec.id,periodId:rec.periodId};state.expenses.push(e)}
+  Object.assign(e,{
+    periodId:rec.periodId,date:rec.date,category:utilityExpenseCategory(rec.type),
+    description:utilityExpenseDescription(rec.type),amount:Math.abs(Number(rec.amount||0)),
+    paid:e.paid??false,paymentMethod:e.paymentMethod||'Banka',
+    fileName:rec.fileName||e.fileName||null,source:'utility_invoice'
+  });
+}
+async function uploadStaffDocument(file,folder,recordId,month){
+  if(!file||!publicSb||!authSession)return null;
+  try{
+    const safe=String(file.name||'belge').replace(/[^a-zA-Z0-9._-]+/g,'_');
+    const path=`${month}/${folder}/${recordId}_${safe}`;
+    const {error}=await publicSb.storage.from('ibra-kat-documents').upload(path,file,{upsert:true,contentType:file.type||undefined});
+    if(error)throw error;
+    return {path,mimeType:file.type||null};
+  }catch(e){console.warn('Belge yüklenemedi',e);return {error:String(e?.message||e)}}
+}
+async function saveInvoice(approve){
   const reviewed=$('#invReviewed')?.checked;
   if(approve&&!reviewed){notify('Önce faturadaki rakamları kontrol edip onay kutusunu işaretleyin.');return}
   const t=$('#invType').value, amount=Number($('#invAmount').value);
   if(!Number.isFinite(amount)||amount<0){notify('Ödenecek toplam tutarı kontrol edin.');return}
   let rec=editingInvoiceId?state.invoices.find(x=>x.id===editingInvoiceId):null;
   if(!rec){rec={id:uid('inv'),periodId:period().id};state.invoices.push(rec)}
-  Object.assign(rec,{type:t,date:$('#invDate').value,amount,status:approve?'approved':'draft',verified:!!approve,reviewedAt:approve?new Date().toISOString():null,reviewedBy:approve?(session?.label||'Kat Görevlisi'):null,fileName:pendingInvoiceFile?.name||rec.fileName||null,ocrText:lastInvoiceOcrText||rec.ocrText||''});
+  const file=pendingInvoiceFile;
+  Object.assign(rec,{periodId:period().id,type:t,date:$('#invDate').value,amount,status:approve?'approved':'draft',verified:!!approve,reviewedAt:approve?new Date().toISOString():null,reviewedBy:approve?(session?.label||'Kat Görevlisi'):null,fileName:file?.name||rec.fileName||null,ocrText:lastInvoiceOcrText||rec.ocrText||''});
   if(t==='water')Object.assign(rec,{invoiceConsumption:Number($('#invConsumption').value||0),wasteCollection:Number($('#invWasteCollection').value||0),wasteDisposal:Number($('#invWasteDisposal').value||0)});
   if(t==='gas')Object.assign(rec,{invoiceConsumption:Number($('#invRawGas').value||0),correctedConsumption:Number($('#invCorrectedGas').value||0)});
-  pendingInvoiceFile=null;editingInvoiceId=null;saveState();logAudit(approve?'Fatura kontrol edildi/onaylandı':'Fatura taslak kaydedildi',`${period().month} · ${t} · ${trMoney(rec.amount)}`);closeModal();render();notify(approve?'Fatura kontrol edilerek kaydedildi.':'Taslak kaydedildi; hesaplamaya alınmayacak.');
+  if(file){
+    const up=await uploadStaffDocument(file,'faturalar',rec.id,period().month);
+    if(up?.path){rec.storagePath=up.path;rec.mimeType=up.mimeType;rec.driveBackupStatus='pending'}
+    else if(up?.error){rec.driveBackupStatus='failed';rec.driveBackupError=up.error}
+  }
+  syncUtilityInvoiceExpense(rec);
+  pendingInvoiceFile=null;editingInvoiceId=null;saveState();
+  logAudit(approve?'Fatura kontrol edildi/onaylandı':'Fatura taslak kaydedildi',`${period().month} · ${t} · ${trMoney(rec.amount)}`);
+  closeModal();render();notify(approve?'Fatura kaydedildi ve giderlere işlendi.':'Taslak kaydedildi.');
 }
+
 function printInvoice(){window.print()}function shareInvoiceMail(id){const i=state.invoices.find(x=>x.id===id);window.location.href=`mailto:?subject=${encodeURIComponent('Apartman faturası - '+invoiceTypeLabel(i.type))}&body=${encodeURIComponent('Tutar: '+trMoney(i.amount))}`}
 function shareInvoiceWhatsApp(id){const i=state.invoices.find(x=>x.id===id);window.open(`https://wa.me/?text=${encodeURIComponent(invoiceTypeLabel(i.type)+' - '+trMoney(i.amount))}`,'_blank')}
 
@@ -1603,7 +1665,19 @@ function addExpenseCategoryFromManager(){addExpenseCategoryPrompt();openExpenseC
 function removeExpenseCategory(enc){const c=decodeURIComponent(enc);state.settings.expenseCategories=(state.settings.expenseCategories||[]).filter(x=>x!==c);saveState();openExpenseCategoryManager()}
 let pendingExpenseFile=null;
 function captureExpenseDoc(){const i=$('#docInput');i.value='';i.onchange=e=>{pendingExpenseFile=e.target.files?.[0]||null;$('#exFileName').textContent=pendingExpenseFile?.name||'Belge seçilmedi.'};i.click()}
-function saveExpense(){const txId=$('#exBankTxId')?.value||null;const e={id:uid('exp'),periodId:periodIdForDate($('#exDate').value),date:$('#exDate').value,category:$('#exCat').value,description:$('#exDesc').value,amount:Math.abs(Number($('#exAmount').value)),paid:$('#exPaid').value==='1',paymentMethod:$('#exMethod').value,fileName:pendingExpenseFile?.name||null,bankTransactionId:txId||null};state.expenses.push(e);if(txId){const tx=state.bankTransactions.find(x=>x.id===txId);if(tx)tx.expenseId=e.id}pendingExpenseFile=null;saveState();logAudit('Gider eklendi',`${e.category} · ${e.description} · ${trMoney(e.amount)}`);closeModal();render()}
+async function saveExpense(){
+  const txId=$('#exBankTxId')?.value||null,file=pendingExpenseFile;
+  const e={id:uid('exp'),periodId:periodIdForDate($('#exDate').value),date:$('#exDate').value,category:$('#exCat').value,description:$('#exDesc').value,amount:Math.abs(Number($('#exAmount').value)),paid:$('#exPaid').value==='1',paymentMethod:$('#exMethod').value,fileName:file?.name||null,bankTransactionId:txId||null};
+  if(file){
+    const pm=state.periods.find(p=>p.id===e.periodId)?.month||String(e.date||'').slice(0,7);
+    const up=await uploadStaffDocument(file,'giderler',e.id,pm);
+    if(up?.path){e.storagePath=up.path;e.mimeType=up.mimeType;e.driveBackupStatus='pending'}
+    else if(up?.error){e.driveBackupStatus='failed';e.driveBackupError=up.error}
+  }
+  state.expenses.push(e);
+  if(txId){const tx=state.bankTransactions.find(x=>x.id===txId);if(tx)tx.expenseId=e.id}
+  pendingExpenseFile=null;saveState();logAudit('Gider eklendi',`${e.category} · ${e.description} · ${trMoney(e.amount)}`);closeModal();render();notify('Gider kaydedildi.');
+}
 function openBankExpense(txId){const tx=state.bankTransactions.find(x=>x.id===txId);if(!tx)return;if(tx.expenseId){notify('Bu banka çıkışı zaten gider olarak işlendi.');return}openExpenseForm({date:tx.date,category:suggestExpenseCategory(tx.description),description:tx.description,amount:Math.abs(Number(tx.amount)),paymentMethod:'Banka',bankTransactionId:tx.id})}
 
 function updateBulkBankBar(){
@@ -1967,7 +2041,7 @@ function render(){
   if(session.role==='manager'){
     if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
-    if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
+    if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerPeriodDetail')app.innerHTML=caretakerPeriodDetail(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
   showManagerOpeningAlerts();
 }
