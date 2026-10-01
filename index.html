@@ -604,6 +604,18 @@ function adminUnitHub(){
   </div>`;
   return shell(c,adminMainNav());
 }
+async function adminDriveBackups(){
+  try{
+    const data=await authCall('admin_list_drive_backups',{building_id:CONFIG.buildingId},true);
+    const rows=data.backups||[];
+    const pending=rows.filter(x=>x.status==='pending').length,uploaded=rows.filter(x=>x.status==='uploaded').length,failed=rows.filter(x=>x.status==='failed').length;
+    const table=rows.map(x=>`<tr><td>${x.period_month}</td><td>${x.backup_kind==='invoice'?'Fatura':'Gider'}</td><td>${esc(x.original_filename||x.storage_path)}</td><td><span class="pill ${x.status==='uploaded'?'ok':x.status==='failed'?'danger':'warn'}">${x.status==='uploaded'?'Drive':x.status==='failed'?'Hata':'Bekliyor'}</span></td><td>${x.drive_url?`<a href="${esc(x.drive_url)}" target="_blank" rel="noopener">Aç</a>`:'—'}</td></tr>`).join('');
+    return shell(`<div class="sectionHead"><div><h2>Belge Yedekleri</h2><div class="muted small">Fatura ve gider belgelerinin Supabase + Google Drive yedek durumu</div></div></div>
+      <div class="grid3" style="margin-top:10px"><div class="card kpi"><div class="klabel">Drive Bekleyen</div><div class="kval">${pending}</div></div><div class="card kpi"><div class="klabel">Drive Tamamlanan</div><div class="kval">${uploaded}</div></div><div class="card kpi"><div class="klabel">Hata</div><div class="kval">${failed}</div></div></div>
+      <div class="notice" style="margin-top:10px">Yüklenen dosyanın ilk güvenli kopyası Supabase Storage'a alınır. Google Drive kopyası tamamlandığında burada <b>Drive</b> olarak görünür.</div>
+      <div class="tableWrap" style="margin-top:10px"><table><thead><tr><th>Ay</th><th>Tür</th><th>Dosya</th><th>Durum</th><th>Drive</th></tr></thead><tbody>${table||'<tr><td colspan="5">Henüz yedekleme kaydı yok.</td></tr>'}</tbody></table></div>`,adminMainNav());
+  }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Yedekleme kayıtları alınamadı.')}</div>`,adminMainNav())}
+}
 function adminFinanceHub(){
   const receivables=totalReceivables(),payables=totalPayables(),bankPending=pendingBankReviewCount();
   const c=`<div class="sectionHead"><div><h2>Finans</h2><div class="muted small">Ön muhasebe, borçlar ve raporlar tek menüde.</div></div></div>
@@ -613,6 +625,7 @@ function adminFinanceHub(){
     <button class="card" onclick="go('accounts')"><h3>Borçlar / Cari Hesaplar</h3><div class="muted small">Daire ve kişi bazında borç, ödeme ve kalan</div></button>
     <button class="card" onclick="go('reports')"><h3>Finansal Raporlar</h3><div class="muted small">Aylık, dönemsel ve yıllık gelir-gider raporları</div></button>
     <button class="card" onclick="go('reportArchive')"><h3>Aylık Rapor Arşivi</h3><div class="muted small">Drive'a kaydedilen borç, tüketim ve gelir-gider PDF'leri</div></button>
+    <button class="card" onclick="go('driveBackups')"><h3>Belge Yedekleri</h3><div class="muted small">Fatura ve gider dosyalarının Supabase / Drive yedek durumu</div></button>
     <button class="card" onclick="go('assessments')"><h3>Ek Tahakkuk</h3><div class="muted small">Özel giderleri dairelere dağıt</div></button>
     <button class="card" onclick="openLateFeeSettings()"><h3>Gecikme Kuralı</h3><div class="muted small">Son ödeme ve gecikme/faiz kuralları</div></button>
   </div>`;
@@ -1629,6 +1642,13 @@ async function uploadStaffDocument(file,folder,recordId,month){
     const path=`${month}/${folder}/${recordId}_${safe}`;
     const {error}=await publicSb.storage.from('ibra-kat-documents').upload(path,file,{upsert:true,contentType:file.type||undefined});
     if(error)throw error;
+    const kind=folder==='faturalar'?'invoice':'expense';
+    try{
+      await authCall('staff_enqueue_drive_backup',{
+        building_id:CONFIG.buildingId,storage_path:path,period_month:month,
+        backup_kind:kind,record_id:recordId,original_filename:file.name||safe,mime_type:file.type||null
+      },true);
+    }catch(qe){console.warn('Drive yedek kuyruğu oluşturulamadı',qe)}
     return {path,mimeType:file.type||null};
   }catch(e){console.warn('Belge yüklenemedi',e);return {error:String(e?.message||e)}}
 }
@@ -2039,7 +2059,7 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='driveBackups')adminDriveBackups().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
     if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerPeriodDetail')app.innerHTML=caretakerPeriodDetail(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
