@@ -55,6 +55,11 @@
 .meterDualTitle span{font-size:12px;color:var(--muted)}
 .meterDualRow input{margin:0;min-height:52px;background:#fff;font-size:25px;font-weight:900;text-align:center}
 .meterDualRow .result{margin-top:6px}
+.meterPhotoInputRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:stretch}
+.meterPhotoInputRow input{min-width:0}
+.meterPhotoBtn{min-width:105px;padding:7px 10px;font-weight:800}
+@media(max-width:520px){.meterPhotoInputRow{grid-template-columns:1fr}.meterPhotoBtn{width:100%;min-height:40px}}
+
 
 @media(max-width:700px){.meterFastScreen{min-height:calc(100dvh - 155px);gap:7px}.meterFastCard{padding:10px}.meterFastCard h2{font-size:21px;margin:3px 0 7px}.meterValues{grid-template-columns:.75fr 1.25fr}.meterPrevBox,.meterInputBox{padding:7px 8px}.meterPrevBox b{font-size:19px;line-height:39px}.meterInputBox input{font-size:25px}.meterFastSecondary{margin-top:6px}.meterSaveDock{left:8px;right:8px}}
 .reconGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.reconCard{border-radius:13px;padding:11px;border:1px solid var(--line)}.reconCard.okbg{background:var(--okbg)}.reconCard.warnbg{background:var(--warnbg)}.reconCard.badbg{background:var(--dangerbg)}.matchRow{border-left:5px solid #94a3b8}.matchRow.matched{border-left-color:#16a34a}.matchRow.missing{border-left-color:#e67e4f}.matchRow.unpaid{border-left-color:#d89b00}@media(max-width:700px){.reconGrid{grid-template-columns:1fr}.meterJump{grid-template-columns:1fr}}
@@ -616,7 +621,7 @@ async function adminDriveBackups(){
     const data=await authCall('admin_list_drive_backups',{building_id:CONFIG.buildingId},true);
     const rows=data.backups||[];
     const pending=rows.filter(x=>x.status==='pending').length,uploaded=rows.filter(x=>x.status==='uploaded').length,failed=rows.filter(x=>x.status==='failed').length;
-    const table=rows.map(x=>`<tr><td>${x.period_month}</td><td>${x.backup_kind==='invoice'?'Fatura':'Gider'}</td><td>${esc(x.original_filename||x.storage_path)}</td><td><span class="pill ${x.status==='uploaded'?'ok':x.status==='failed'?'danger':'warn'}">${x.status==='uploaded'?'Drive':x.status==='failed'?'Hata':'Bekliyor'}</span></td><td>${x.drive_url?`<a href="${esc(x.drive_url)}" target="_blank" rel="noopener">Aç</a>`:'—'}</td></tr>`).join('');
+    const table=rows.map(x=>`<tr><td>${x.period_month}</td><td>${x.backup_kind==='invoice'?'Fatura':x.backup_kind==='meter'?'Sayaç Fotoğrafı':'Gider'}</td><td>${esc(x.original_filename||x.storage_path)}</td><td><span class="pill ${x.status==='uploaded'?'ok':x.status==='failed'?'danger':'warn'}">${x.status==='uploaded'?'Drive':x.status==='failed'?'Hata':'Bekliyor'}</span></td><td>${x.drive_url?`<a href="${esc(x.drive_url)}" target="_blank" rel="noopener">Aç</a>`:'—'}</td></tr>`).join('');
     return shell(`<div class="sectionHead"><div><h2>Belge Yedekleri</h2><div class="muted small">Fatura ve gider belgelerinin Supabase + Google Drive yedek durumu</div></div></div>
       <div class="grid3" style="margin-top:10px"><div class="card kpi"><div class="klabel">Drive Bekleyen</div><div class="kval">${pending}</div></div><div class="card kpi"><div class="klabel">Drive Tamamlanan</div><div class="kval">${uploaded}</div></div><div class="card kpi"><div class="klabel">Hata</div><div class="kval">${failed}</div></div></div>
       <div class="notice" style="margin-top:10px">Yüklenen dosyanın ilk güvenli kopyası Supabase Storage'a alınır. Google Drive kopyası tamamlandığında burada <b>Drive</b> olarak görünür.</div>
@@ -1938,17 +1943,25 @@ function meterEntry(){
       <h2>${u.label}</h2>
       <div class="meterDualRow">
         <div class="meterDualTitle"><b>💧 Soğuk Su</b><span>Önceki: <b>${prevCold}</b></span></div>
-        <input id="meterColdNew" inputmode="decimal" enterkeyhint="next" autocomplete="off" value="${cold}" oninput="validateWaterInput('cold',${prevCold})" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('meterHotNew')?.focus();document.getElementById('meterHotNew')?.select()}" placeholder="Yeni soğuk su endeksi">
+        <div class="meterPhotoInputRow">
+          <input id="meterColdNew" inputmode="decimal" enterkeyhint="next" autocomplete="off" value="${cold}" oninput="validateWaterInput('cold',${prevCold})" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('meterHotNew')?.focus();document.getElementById('meterHotNew')?.select()}" placeholder="Yeni soğuk su endeksi">
+          <button type="button" class="meterPhotoBtn" onclick="captureMeterPhoto('cold',${prevCold})">📷 Fotoğraf</button>
+        </div>
         <div id="meterColdResult" class="result ${cold!==''&&Number(cold)<prevCold?'bad':''}">${cold!==''?meterResultText(cold,prevCold,'cold'):'Yeni endeksi gir.'}</div>
+        <div id="meterColdPhotoStatus" class="small ${exCold?.photoPath?'ok':'muted'}">${exCold?.photoPath?'✓ Soğuk su fotoğrafı arşivlendi':'Fotoğraf çekilirse endeks otomatik okunur ve kaydedilir.'}</div>
       </div>
       <div class="meterDualRow">
         <div class="meterDualTitle"><b>♨️ Sıcak Su</b><span>Önceki: <b>${prevHot}</b></span></div>
-        <input id="meterHotNew" inputmode="decimal" enterkeyhint="go" autocomplete="off" value="${hot}" oninput="validateWaterInput('hot',${prevHot})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext()}" placeholder="Yeni sıcak su endeksi">
+        <div class="meterPhotoInputRow">
+          <input id="meterHotNew" inputmode="decimal" enterkeyhint="go" autocomplete="off" value="${hot}" oninput="validateWaterInput('hot',${prevHot})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext()}" placeholder="Yeni sıcak su endeksi">
+          <button type="button" class="meterPhotoBtn" onclick="captureMeterPhoto('hot',${prevHot})">📷 Fotoğraf</button>
+        </div>
         <div id="meterHotResult" class="result ${hot!==''&&Number(hot)<prevHot?'bad':''}">${hot!==''?meterResultText(hot,prevHot,'hot'):'Yeni endeksi gir.'}</div>
+        <div id="meterHotPhotoStatus" class="small ${exHot?.photoPath?'ok':'muted'}">${exHot?.photoPath?'✓ Sıcak su fotoğrafı arşivlendi':'Fotoğraf çekilirse endeks otomatik okunur ve kaydedilir.'}</div>
       </div>
       <div class="meterFastSecondary">
         <button type="button" ${meterContext.index===units.length-1?'disabled':''} onclick="meterBack()">‹ ${backLabel==='—'?'Geri':backLabel}</button>
-        <button type="button" onclick="captureMeterPhoto()">📷 Fotoğraf</button>
+        <button type="button" onclick="meterJumpNextMissing()">Eksik Daireyi Bul</button>
       </div>
     </div>`;
   }else{
@@ -1963,9 +1976,10 @@ function meterEntry(){
         <label class="meterInputBox"><span>Yeni endeks</span><input id="meterGasNew" inputmode="decimal" enterkeyhint="go" autocomplete="off" value="${curr}" oninput="validateMeterInput(${prev})" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMeterNext()}" placeholder="Değeri gir"></label>
       </div>
       <div id="meterResult" class="result ${curr!==''&&Number(curr)<prev?'bad':''}">${curr!==''?meterResultText(curr,prev,'gas'):'Değeri gir; tüketim otomatik hesaplanır.'}</div>
+      <div id="meterGasPhotoStatus" class="small ${existing?.photoPath?'ok':'muted'}">${existing?.photoPath?'✓ Gaz sayaç fotoğrafı arşivlendi':'Fotoğraf çekilirse endeks otomatik okunur ve kaydedilir.'}</div>
       <div class="meterFastSecondary">
         <button type="button" ${meterContext.index===units.length-1?'disabled':''} onclick="meterBack()">‹ ${backLabel==='—'?'Geri':backLabel}</button>
-        <button type="button" onclick="captureMeterPhoto()">📷 Fotoğraf</button>
+        <button type="button" onclick="captureMeterPhoto('gas',${prev})">📷 Gaz Fotoğrafı</button>
       </div>
     </div>`;
   }
@@ -2010,15 +2024,97 @@ function validateMeterInput(prev){
   res.innerHTML=meterResultText(el.value,prev,'gas');
   res.classList.toggle('bad',Number(String(el.value).replace(',','.'))<prev);
 }
-function captureMeterPhoto(){
+function meterPhotoStatusEl(type){
+  return type==='cold'?$('#meterColdPhotoStatus'):type==='hot'?$('#meterHotPhotoStatus'):$('#meterGasPhotoStatus');
+}
+function meterInputEl(type){
+  return type==='cold'?$('#meterColdNew'):type==='hot'?$('#meterHotNew'):$('#meterGasNew');
+}
+function parseMeterOcrValue(text,prev){
+  const cleaned=String(text||'').toUpperCase().replace(/O/g,'0').replace(/[IL|]/g,'1');
+  const groups=cleaned.match(/\d[\d\s.,]{2,12}/g)||[];
+  const nums=[];
+  for(const g of groups){
+    const digits=g.replace(/\D/g,'');
+    if(digits.length<3||digits.length>9)continue;
+    const n=Number(digits);
+    if(Number.isFinite(n))nums.push(n);
+  }
+  const unique=[...new Set(nums)];
+  const prevN=Number(prev),prevLen=Math.trunc(prevN).toString().length;
+  const plausible=unique.filter(n=>n>=prevN && n-prevN<=80000);
+  plausible.sort((a,b)=>{
+    const sa=Math.abs(Math.trunc(a).toString().length-prevLen)*50000+(a-prevN);
+    const sb=Math.abs(Math.trunc(b).toString().length-prevLen)*50000+(b-prevN);
+    return sa-sb;
+  });
+  return plausible[0]??null;
+}
+async function archiveMeterPhoto(file,type,u,p){
+  if(!file||!publicSb||!authSession)throw new Error('Bulut oturumu yok; fotoğraf arşivlenemedi.');
+  const safe=String(file.name||type+'-sayac.jpg').replace(/[^a-zA-Z0-9._-]+/g,'_');
+  const code=u.code||u.label||u.id;
+  const path=`${p.month}/sayaclar/${code}/${type}/${Date.now()}_${safe}`;
+  const {error}=await publicSb.storage.from('ibra-kat-documents').upload(path,file,{upsert:false,contentType:file.type||'image/jpeg'});
+  if(error)throw error;
+  try{
+    await authCall('staff_enqueue_drive_backup',{
+      building_id:CONFIG.buildingId,storage_path:path,period_month:p.month,
+      backup_kind:'meter',record_id:`${p.id}:${u.id}:${type}:${Date.now()}`,
+      original_filename:file.name||safe,mime_type:file.type||'image/jpeg'
+    },true);
+  }catch(e){console.warn('Sayaç fotoğrafı Drive kuyruğuna alınamadı',e)}
+  return path;
+}
+async function captureMeterPhoto(type,prev){
   const i=$('#cameraInput');i.value='';
-  i.onchange=()=>{if(i.files?.[0])notify('Sayaç fotoğrafı alındı.')};
+  i.onchange=async()=>{
+    const file=i.files?.[0];if(!file)return;
+    const p=period(),u=meterUnits()[meterContext.index],status=meterPhotoStatusEl(type);
+    if(status){status.className='small muted';status.textContent='Fotoğraf arşivleniyor…'}
+    let photoPath='';
+    try{
+      photoPath=await archiveMeterPhoto(file,type,u,p);
+      if(status){status.className='small ok';status.textContent='✓ Fotoğraf arşivlendi · sayaç okunuyor…'}
+    }catch(e){
+      if(status){status.className='small danger';status.textContent='Fotoğraf arşivlenemedi: '+(e.message||e)}
+      notify('Fotoğraf arşivlenemedi; sayaç otomatik kaydedilmedi.');
+      return;
+    }
+    if(!window.Tesseract){
+      if(status){status.className='small warn';status.textContent='✓ Fotoğraf arşivlendi · OCR modülü yüklenemedi, değeri elle gir.'}
+      return;
+    }
+    try{
+      const result=await Tesseract.recognize(file,'eng',{logger:m=>{
+        if(m.status==='recognizing text'&&status)status.textContent=`✓ Arşivlendi · sayaç okunuyor %${Math.round((m.progress||0)*100)}`;
+      }});
+      const text=result?.data?.text||'';
+      const value=parseMeterOcrValue(text,prev);
+      if(value==null){
+        if(status){status.className='small warn';status.textContent='✓ Fotoğraf arşivlendi · endeks güvenle okunamadı, elle kontrol et.'}
+        return;
+      }
+      const el=meterInputEl(type);if(el)el.value=value;
+      if(type==='gas')validateMeterInput(prev);else validateWaterInput(type,prev);
+      upsertMeterReading(u,p,type,prev,value,{
+        photoPath,photoFileName:file.name||null,photoMimeType:file.type||'image/jpeg',
+        ocrText:text,ocrConfidence:Number(result?.data?.confidence||0),source:'photo_ocr',capturedAt:new Date().toISOString()
+      });
+      saveState();
+      logAudit('Sayaç fotoğraftan otomatik işlendi',`${p.month} · ${u.label} · ${type} · ${value}`);
+      if(status){status.className='small ok';status.innerHTML=`✓ Fotoğraf arşivlendi · <b>${value}</b> otomatik okundu ve sisteme kaydedildi.`}
+    }catch(e){
+      console.warn(e);
+      if(status){status.className='small warn';status.textContent='✓ Fotoğraf arşivlendi · OCR başarısız, değeri elle gir.'}
+    }
+  };
   i.click();
 }
-function upsertMeterReading(u,p,type,prev,value){
+function upsertMeterReading(u,p,type,prev,value,meta={}){
   let r=state.meterReadings.find(x=>x.periodId===p.id&&x.unitId===u.id&&x.type===type);
   if(!r){r={id:uid('m'),periodId:p.id,unitId:u.id,type};state.meterReadings.push(r)}
-  Object.assign(r,{previous:prev,current:value,consumption:(value-prev)/1000,verified:true});
+  Object.assign(r,{previous:prev,current:value,consumption:(value-prev)/1000,verified:true},meta);
 }
 function saveWaterPair(){
   const p=period(),units=meterUnits(),u=units[meterContext.index];
