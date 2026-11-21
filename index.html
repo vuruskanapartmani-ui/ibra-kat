@@ -232,7 +232,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.25';
+const APP_VERSION = 'V1.26';
 const APP_VERSION_DATE = '21.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2067,42 +2067,294 @@ async function pdfArchiveTables(file,mode,progress){
     await pdf.destroy();
   }
 }
+function debtResponsibilityOptions(unitId,month){
+  const start=month+'-01', end=monthEnd(month);
+  const all=unitRelationships(unitId);
+  const overlaps=({r})=>(r.startDate||r.endDate)&&(!r.startDate||r.startDate<=end)&&(!r.endDate||r.endDate>=start);
+  return [...all].sort((a,b)=>Number(!!overlaps(b))-Number(!!overlaps(a))).map(({r,p})=>({id:p.id,
+    label:p.name+' · '+relRoleLabel(r.role)+' · '+(r.startDate||'Başlangıç yok')+' – '+(r.endDate||'Bitiş yok'),
+    relevant:!!overlaps({r})}));
+}
+function defaultDebtPerson(e){
+  const relevant=unitRelationships(e.unit.id).filter(({r})=>(r.startDate||r.endDate)&&
+    (!r.startDate||r.startDate<=monthEnd(e.month))&&(!r.endDate||r.endDate>=e.month+'-01'));
+  const tenants=relevant.filter(({r})=>['tenant','occupant'].includes(r.role));
+  const people=[...new Set((tenants.length?tenants:relevant).map(({p})=>p.id))];
+  const wholeMonth=(tenants.length?tenants:relevant).some(({r})=>r.startDate&&r.startDate<=e.month+'-01'&&(!r.endDate||r.endDate>=monthEnd(e.month)));
+  return people.length===1&&wholeMonth?people[0]:'';
+}
+function debtAllocationKey(e){return [e.month,e.unit.id,e.type].join('|')}
+function debtCents(amount){return Math.round(Number(amount)*100)}
+function debtSplitRow(e,personId='',amount=''){
+  const options=debtResponsibilityOptions(e.unit.id,e.month);
+  const seen=new Set();
+  const dropdown=options.filter(o=>!seen.has(o.id)&&seen.add(o.id)).map(o=>'<option value="'+esc(o.id)+'"'+(o.id===personId?' selected':'')+'>'+esc((o.relevant?'':'Diğer dönem · ')+o.label)+'</option>').join('');
+  return '<div class="actions" data-split><label>Sorumlu<select data-person><option value="">Daire hesabı</option>'+dropdown+'</select></label>'+
+    '<label>Tutar (TL)<input data-amount type="number" min="0.01" step="0.01" value="'+esc(amount)+'"></label>'+
+    '<button type="button" data-remove>Payı kaldır</button></div>';
+}
+function bindDebtSplits(root,entries){
+  root.querySelectorAll('[data-allocation]').forEach((el,i)=>{
+    const e=entries[i], parts=el.querySelector('[data-parts]');
+    const old=e.existingAllocation||[];
+    parts.innerHTML=old.length?old.map(p=>debtSplitRow(e,p.personId||'',p.amount)).join(''):debtSplitRow(e,defaultDebtPerson(e),e.amount);
+    el.querySelector('[data-add]').addEventListener('click',()=>{
+      const assigned=[...parts.querySelectorAll('[data-amount]')].reduce((n,input)=>n+debtCents(input.value),0);
+      const remainder=debtCents(e.amount)-assigned;
+      parts.insertAdjacentHTML('beforeend',debtSplitRow(e,'',remainder>0?(remainder/100).toFixed(2):''));
+    });
+    parts.addEventListener('click',event=>{
+      const remove=event.target.closest('[data-remove]');
+      if(remove&&parts.children.length>1)remove.closest('[data-split]').remove();
+    });
+  });
+}
+function readDebtSplits(root,entries){
+  const selections=new Map();
+  root.querySelectorAll('[data-allocation]').forEach((el,i)=>{
+    const e=entries[i], shares=[...el.querySelectorAll('[data-split]')].map(part=>({
+      personId:part.querySelector('[data-person]').value||null,
+      amount:Number(part.querySelector('[data-amount]').value),
+    }));
+    const allowed=new Set(debtResponsibilityOptions(e.unit.id,e.month).map(o=>o.id));
+    if(shares.some(p=>!Number.isFinite(p.amount)||p.amount<=0||Math.abs(p.amount*100-debtCents(p.amount))>1e-6||(p.personId&&!allowed.has(p.personId)))||
+       new Set(shares.map(p=>p.personId)).size!==shares.length||shares.reduce((sum,p)=>sum+debtCents(p.amount),0)!==debtCents(e.amount)){
+      el.open=true;el.scrollIntoView({block:'center'});
+      throw new Error(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+': kişi başına tek pay girin. Paylar '+trMoney2(e.amount)+' etmeli.');
+    }
+    selections.set(debtAllocationKey(e),shares);
+  });
+  return selections;
+}
+function archiveDebtPlan(entries){
+  const accepted=[],errors=[],seen=new Map();let repeated=0;
+  for(const e of entries){
+    const key=debtAllocationKey(e), p=state.periods.find(p=>p.month===e.month);
+    const duplicate=seen.get(key);
+    if(duplicate){
+      if(duplicate.due===e.due&&debtCents(duplicate.amount)===debtCents(e.amount))repeated++;
+      else errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' dosyalarda farklı.');
+      continue;
+    }
+    if([...seen.values()].some(other=>other.unit.id===e.unit.id&&other.month===e.month&&debtCategoriesOverlap(other.type,e.type))){
+      errors.push(e.unit.label+' · '+e.month+' · toplam su ve ayrı su kalemleri çakışıyor.');continue;
+    }
+    seen.set(key,e);
+    if(!unit(e.unit.id)){errors.push(e.unit.label+' artık kayıtlı değil.');continue;}
+    const matched=state.charges.filter(c=>c.periodId===p?.id&&c.unitId===e.unit.id&&debtCategoriesOverlap(c.type,e.type));
+    if(matched.length){
+      if(!matched.every(c=>c.type===e.type&&c.dueDate===e.due&&c.source==='legacy_manual')||
+         matched.reduce((sum,c)=>sum+debtCents(c.amount),0)!==debtCents(e.amount)){
+        errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' mevcut kayıtla çakışıyor.');continue;
+      }
+      const paid=state.payments.some(pay=>matched.some(c=>c.id===pay.chargeId||'late_'+c.id===pay.chargeId));
+      if(paid){repeated++;continue;}
+      accepted.push({...e,existingAllocation:matched.map(c=>({id:c.id,personId:c.personId,amount:c.amount}))});
+    }else accepted.push(e);
+  }
+  return {accepted,errors,repeated};
+}
+function applyArchiveDebtSplits(entries,selections,preview){
+  const plan=archiveDebtPlan(entries);
+  if(plan.errors.length)throw new Error(plan.errors[0]);
+  let added=0;
+  for(const e of plan.accepted){
+    const shares=selections.get(debtAllocationKey(e));
+    const before=preview?.find(p=>debtAllocationKey(p)===debtAllocationKey(e));
+    if(!shares||(preview&&(!before||JSON.stringify(before.existingAllocation||[])!==JSON.stringify(e.existingAllocation||[])))) {
+      throw new Error('Borç önizlemesi değişti. Dosyaları tekrar kontrol edin.');
+    }
+    const allowed=new Set(debtResponsibilityOptions(e.unit.id,e.month).map(o=>o.id));
+    if(shares.some(p=>p.personId&&!allowed.has(p.personId)))throw new Error('Kişi ilişkileri değişti. Önizlemeyi yenileyin.');
+    let p=state.periods.find(p=>p.month===e.month);
+    if(!p){
+      p={id:uid('p'),month:e.month,dueDate:e.due,status:'locked',legacyOnly:true,boilerActive:false,dues:0};
+      state.periods.push(p);
+    }
+    const existing=e.existingAllocation||[];
+    if(existing.length===shares.length&&shares.every(s=>existing.some(c=>(c.personId||null)===s.personId&&debtCents(c.amount)===debtCents(s.amount))))continue;
+    // Keep unchanged shares and their record IDs. Any charge linked to a payment was excluded above.
+    const keep=new Set();
+    for(const share of shares){
+      const old=existing.find(c=>(c.personId||null)===share.personId&&!keep.has(c.id));
+      if(old){
+        keep.add(old.id);
+        const charge=state.charges.find(c=>c.id===old.id);
+        charge.amount=share.amount;charge.rawAmount=share.amount;
+      }else {
+        state.charges.push({id:uid('c'),periodId:p.id,unitId:e.unit.id,personId:share.personId,type:e.type,
+          label:HISTORICAL_DEBT_TYPES[e.type],rawAmount:share.amount,amount:share.amount,dueDate:e.due,source:'legacy_manual',note:e.note||''});
+      }
+    }
+    const removed=new Set(existing.filter(c=>!keep.has(c.id)).map(c=>c.id));
+    state.charges=state.charges.filter(c=>!removed.has(c.id));
+    added++;
+  }
+  if(preview&&plan.accepted.length!==preview.length)throw new Error('Bir borç ödemeyle eşleşti veya değişti. Önizlemeyi yenileyin.');
+  return added;
+}
 function openHistoricalArchive(){
   if(session?.role!=='manager')return;
-  const body='<h2>Geçmiş dönem aktarımı</h2><p class="muted">2024 ve sonrası · PDF, Excel veya CSV</p>'+
-    '<form class="stack" onsubmit="event.preventDefault();readHistoricalArchive(this)">'+
-    '<label>Kayıt türü<select name="mode"><option value="debt">Borç kalemleri</option><option value="meter">Sayaç ve tüketim</option></select></label>'+
-    '<label>Dönem<input type="month" name="month" min="2024-01" max="'+todayISO().slice(0,7)+'" required></label>'+
-    '<label>Son ödeme tarihi (borç dosyaları için)<input type="date" name="due"></label>'+
-    '<label>Dosya<input type="file" name="sheet" accept=".pdf,.xlsx,.xls,.csv" required></label>'+
-    '<label>Excel sayaç birimi<select name="scale"><option value="1">IBRAKAT endeksi · örn. 123456</option><option value="1000">Metreküp · örn. 123,456</option></select></label>'+
-    '<label>Excel sayaç dosyası için gaz <select name="gas"><option value="include">Gazı oku</option><option value="omit">Gazı hariç bırak</option></select></label>'+
-    '<button type="submit">Dosyayı oku</button></form><div id="archiveReview" aria-live="polite"></div>';
-  openModal(body);
-}
-async function readHistoricalArchive(form){
-  const output=$('#archiveReview'), button=form.querySelector('button[type=submit]');
-  const {mode,month,due,scale,gas}=Object.fromEntries(new FormData(form));
-  const file=form.elements.sheet.files[0];
-  if(!file||!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)||month<'2024-01'||month>todayISO().slice(0,7))return;
-  const context={mode,month,due,scale:Number(scale),filename:file.name,omitGas:gas==='omit'};
-  button.disabled=true;
-  output.oninput=null;
-  output.textContent='Dosya okunuyor…';
-  try{
-    if(/\.pdf$/i.test(file.name)){
-      context.scale=1;
-      if(mode==='debt'&&!due)throw new Error('Borç PDF’sindeki son ödeme tarihini girin.');
-      const rows=await pdfArchiveTables(file,mode,text=>{output.textContent=text});
-      renderArchivePdfReview(output,context,rows);
-    }else {
-      const sheets=await uploadSheet(file,sheets=>sheets);
-      renderArchivePlan(output,context,sheets);
+  openModal('<h2>Geçmiş dönem aktarımı</h2><p>PDF, Excel ve CSV dosyalarını birlikte seçin. Her dosya için türü ve dönemi belirleyin.</p>'+
+    '<label>Dosyalar<input type="file" id="archiveBatchFiles" accept=".pdf,.xlsx,.xls,.csv" multiple></label>'+
+    '<div class="actions"><button type="button" id="archiveManual">Elle borç kalemi ekle</button><button type="button" id="archivePrepareAll">Tüm dosyaları hazırla</button></div><div id="archiveFileQueue"></div>'+
+    '<div class="actions"><button type="button" class="primary" id="archiveBatchPreview">Tüm kayıtları birlikte önizle</button></div>'+
+    '<div id="archiveBatchResult" aria-live="polite"></div>');
+  const queue=$('#archiveFileQueue'), result=$('#archiveBatchResult'), records=[];
+  const clearPlan=()=>result.replaceChildren();
+  function addItem(file){
+    const item={file,context:null,sheets:null};
+    const panel=document.createElement('section');
+    panel.className='card';
+    panel.style.marginTop='10px';
+    const kind=file&&/tuketim|sayac/i.test(sheetKey(file.name))?'meter':'debt';
+    const namedMonth=file?.name.match(/(?:^|[^0-9])(20\d{2})[-_. ]?(0[1-9]|1[0-2])(?=\D|$)/);
+    const month=namedMonth?namedMonth[1]+'-'+namedMonth[2]:'';
+    const fields=file?
+      '<label>Kayıt türü<select name="mode"><option value="debt">Borç kalemleri</option><option value="meter"'+(kind==='meter'?' selected':'')+'>Sayaç ve tüketim</option></select></label>'+
+      '<label>Sayaç birimi<select name="scale"><option value="1">Ham endeks</option><option value="1000">Metreküp</option></select></label>'+
+      '<label>Gaz<select name="gas"><option value="include">Dahil et</option><option value="omit">Hariç bırak</option></select></label>':
+      '<label>Daire<select name="unit" required>'+state.units.map(u=>'<option value="'+esc(u.code)+'">'+esc(u.label)+'</option>').join('')+'</select></label>'+
+      '<label>Borç kalemi<select name="type">'+Object.values(HISTORICAL_DEBT_TYPES).map(label=>'<option>'+esc(label)+'</option>').join('')+'</select></label>'+
+      '<label>Tutar (TL)<input name="amount" required inputmode="decimal" type="number" min="0.01" step="0.01"></label>';
+    panel.innerHTML='<div class="sectionHead"><h3>'+esc(file?.name||'Elle borç kalemi')+'</h3><button type="button" data-drop>Çıkar</button></div>'+
+      '<form class="stack"><div class="grid2">'+fields+'<label>Dönem<input type="month" name="month" min="2024-01" max="'+todayISO().slice(0,7)+'" value="'+month+'" required></label>'+
+      '<label>Son ödeme tarihi<input type="date" name="due"></label></div><button type="submit">'+(file?'Dosyayı hazırla':'Kalemi hazırla')+'</button></form>'+
+      '<div data-file-status aria-live="polite"></div>';
+    queue.append(panel);records.push(item);clearPlan();
+    panel.querySelector('[data-drop]').addEventListener('click',()=>{
+      records.splice(records.indexOf(item),1);panel.remove();clearPlan();
+    });
+    const form=panel.querySelector('form'), status=panel.querySelector('[data-file-status]');
+    item.form=form;
+    const reset=()=>{item.context=null;item.sheets=null;clearPlan();};
+    form.addEventListener('input',()=>{reset();status.textContent='Değerler değişti. Yeniden hazırlayın.';});
+    const prepare=async()=>{
+      if(!form.reportValidity())return;
+      reset();
+      const controls=[...form.elements];
+      const data=Object.fromEntries(new FormData(form));
+      const context={mode:data.mode||'debt',month:data.month,due:data.due,scale:Number(data.scale||1),
+        filename:file?.name||'Elle girilen geçmiş borç',omitGas:data.gas==='omit'};
+      const ready=(settings,sheets)=>{item.context=settings;item.sheets=sheets;clearPlan();};
+      const mark=()=>{status.textContent='Hazır · '+isoMonthLabel(context.month);};
+      controls.forEach(el=>el.disabled=true);
+      status.textContent='Okunuyor…';
+      try{
+        if(!file){
+          ready(context,[[['Daire','Kalem','Tutar'],[data.unit,data.type,data.amount]]]);mark();
+        }else if(/\.pdf$/i.test(file.name)){
+          context.scale=1;
+          if(context.mode==='debt'&&!context.due)throw new Error('Borç PDF’sindeki son ödeme tarihini girin.');
+          const rows=await pdfArchiveTables(file,context.mode,text=>{status.textContent=text;});
+          renderArchivePdfReview(status,context,rows,(settings,sheets)=>ready(settings,sheets),reset);
+        }else{
+          const sheets=await uploadSheet(file,sheets=>sheets);
+          ready(context,sheets);mark();
+        }
+      }catch(error){status.textContent=error.message;}
+      finally{controls.forEach(el=>el.disabled=false);}
+    };
+    item.prepare=prepare;
+    form.addEventListener('submit',event=>{event.preventDefault();void prepare();});
+  }
+  $('#archivePrepareAll').addEventListener('click',async event=>{
+    const button=event.currentTarget;
+    button.disabled=true;
+    try{
+      for(const item of [...records])if(records.includes(item)&&item.file&&!item.sheets&&!item.form.querySelector('[type=submit]').disabled)await item.prepare();
+    }finally{button.disabled=false;}
+  });
+  $('#archiveBatchFiles').addEventListener('change',event=>{
+    for(const file of event.target.files)addItem(file);
+    event.target.value='';
+  });
+  $('#archiveManual').addEventListener('click',()=>addItem(null));
+  $('#archiveBatchPreview').addEventListener('click',()=>{
+    if(!records.length||records.some(item=>!item.sheets)){
+      result.textContent='Önce listedeki her dosyayı veya elle girilen kalemi hazırlayın. PDF tablolarını dosya bazında kontrol edin.';return;
     }
-  }catch(error){output.textContent=error.message;}
-  finally{button.disabled=false;}
+    renderArchiveBatchPlan(result,records.map(item=>({...item})));
+  });
 }
-function renderArchivePdfReview(output,context,rows){
+function collectArchiveBatch(records){
+  const debtEntries=[],meterGroups=new Map(),errors=[];
+  let otherPeriods=0;
+  for(const {context,sheets} of records){
+    if(context.mode==='debt'){
+      const part=parseHistoricalDebtSheet(sheets,context.month,context.due);
+      const chosen=part.entries.filter(e=>e.month===context.month);
+      otherPeriods+=part.entries.length-chosen.length;
+      chosen.forEach(e=>debtEntries.push({...e,note:e.note||context.filename}));
+      errors.push(...part.errors.map(e=>context.filename+' · '+e));
+      continue;
+    }
+    const p=state.periods.find(p=>p.month===context.month)||{id:'archive_'+context.month,month:context.month,legacyOnly:true,
+      status:'locked',dueDate:monthEnd(context.month),dues:0,boilerActive:false};
+    const data=context.omitGas?sheets.map(sheet=>{
+      const header=sheet.find(row=>row.some(c=>formMeterType(c)))||[];
+      return sheet.map(row=>row.map((cell,index)=>formMeterType(header[index])==='gas'?'':cell));
+    }):sheets;
+    const part=readFormMeters(data,p,context.scale,{historical:true});
+    if(!meterGroups.has(p.month))meterGroups.set(p.month,{p,entries:[]});
+    meterGroups.get(p.month).entries.push(...part.entries.map(e=>({...e,filename:context.filename,time:''})));
+    errors.push(...part.errors.map(e=>context.filename+' · '+e));
+  }
+  const debt=archiveDebtPlan(debtEntries);
+  errors.push(...debt.errors);
+  const readings=[],savedPeriods=state.periods,savedReadings=state.meterReadings;
+  let repeated=debt.repeated;
+  try{
+    state.periods=[...savedPeriods];state.meterReadings=[...savedReadings];
+    for(const {p,entries} of [...meterGroups.values()].sort((a,b)=>a.p.month.localeCompare(b.p.month))){
+      const current=prepareFormMeters(p,entries);
+      errors.push(...current.errors.map(e=>p.month+' · '+e));repeated+=current.repeated;
+      if(!state.periods.some(x=>x.month===p.month))state.periods.push(p);
+      current.accepted.forEach(e=>{
+        readings.push({p,...e});
+        state.meterReadings.push({periodId:p.id,unitId:e.unit.id,type:e.type,current:e.current});
+      });
+    }
+  }finally{state.periods=savedPeriods;state.meterReadings=savedReadings;}
+  return {debtEntries,debt:debt.accepted,readings,repeated,errors,otherPeriods};
+}
+function renderArchiveBatchPlan(output,records){
+  const plan=collectArchiveBatch(records);
+  const amounts=plan.debt.reduce((sum,e)=>sum+debtCents(e.amount),0);
+  output.innerHTML='<h3>Toplu aktarım önizlemesi</h3><p>'+plan.debt.length+' borç kalemi · '+plan.readings.length+
+    ' yeni sayaç · '+plan.repeated+' aynı veya ödemeli kayıt · '+trMoney2(amounts/100)+'</p>'+
+    (plan.otherPeriods?'<p class="small">'+plan.otherPeriods+' borç kalemi başka döneme ait.</p>':'')+
+    plan.errors.map(e=>'<p class="danger">'+esc(e)+'</p>').join('')+
+    (plan.debt.length?'<p>Her borcu açarak sorumluyu ve tutarı belirleyin. Bir ayın tamamında tek tarihli sorumlu varsa önerilir. Geçiş aylarında dağılımı kendiniz yapabilirsiniz.</p>':'')+
+    plan.debt.map(e=>'<details class="card" data-allocation><summary>'+esc(e.unit.label)+' · '+e.month+' · '+esc(HISTORICAL_DEBT_TYPES[e.type])+
+      ' · '+trMoney2(e.amount)+(e.existingAllocation?' · mevcut':'')+'</summary><div data-parts></div><button type="button" data-add>Pay ekle</button></details>').join('')+
+    (plan.readings.length?'<details><summary>Sayaç endekslerini göster</summary><div class="tableWrap"><table><thead><tr><th>Daire</th><th>Dönem</th><th>Sayaç</th><th>Önceki</th><th>Yeni</th></tr></thead><tbody>'+
+      plan.readings.map(e=>'<tr><td>'+esc(e.unit.label)+'</td><td>'+e.p.month+'</td><td>'+esc(FORM_METER_LABELS[e.type])+'</td><td>'+trNum(e.previous)+'</td><td>'+trNum(e.current)+'</td></tr>').join('')+'</tbody></table></div></details>':'')+
+    '<div data-batch-error role="alert" class="danger"></div>'+
+    (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<button type="button" class="primary" data-batch-commit>Onayla ve toplu işle</button>':'');
+  bindDebtSplits(output,plan.debt);
+  output.querySelector('[data-batch-commit]')?.addEventListener('click',async event=>{
+    const button=event.currentTarget, error=output.querySelector('[data-batch-error]');
+    button.disabled=true;error.textContent='';
+    try{
+      const shares=readDebtSplits(output,plan.debt);
+      const result=await commitSpreadsheetChange(()=>{
+        const current=collectArchiveBatch(records);
+        if(current.errors.length)throw new Error(current.errors[0]);
+        const added=applyArchiveDebtSplits(current.debtEntries,shares,plan.debt);
+        current.readings.forEach(e=>{
+          let p=state.periods.find(p=>p.month===e.p.month);
+          if(!p){p=e.p;state.periods.push(p);}
+          upsertMeterReading(e.unit,p,e.type,e.previous,e.current,{source:'historical_import',sourceFile:e.filename,readAt:null});
+        });
+        const meters=current.readings.length;
+        return {added,meters,changed:added+meters>0};
+      },'Geçmiş dönem toplu aktarımı',r=>r.added+' borç kalemi · '+r.meters+' sayaç');
+      closeModal();render();notify(result.added+' borç kalemi · '+result.meters+' sayaç işlendi.');
+    }catch(e){error.textContent=e.message;button.disabled=false;}
+  });
+}
+function renderArchivePdfReview(output,context,rows,ready,reset){
   const columns=[...archiveColumns[context.mode],...(context.mode==='debt'?['PDF aylık toplamı']:[])];
   output.innerHTML='<h3>PDF değerlerini kontrol edin</h3><p class="small muted">Daire numaralarını ve rakamları belgeden doğrulayın. Okunamayan veya hatalı hücreleri düzeltin.</p>'+
     '<div class="tableWrap"><table><thead><tr>'+columns.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
@@ -2112,7 +2364,7 @@ function renderArchivePdfReview(output,context,rows){
       '<label><input type="checkbox" data-use-components> PDF toplamıyla fark varsa kuruşlu kalemleri esas al</label>')+
     '<button type="button" data-review>Kontrol ettim, eşleştirmeyi göster</button><div data-plan></div>';
   output.oninput=event=>{
-    if(event.target.closest('tbody')||event.target.matches('[type=checkbox]'))output.querySelector('[data-plan]').replaceChildren();
+    if(event.target.closest('tbody')||event.target.matches('[type=checkbox]')){reset();output.querySelector('[data-plan]').replaceChildren();}
   };
   output.querySelector('[data-review]').addEventListener('click',()=>{
     const values=Array.from(output.querySelectorAll('tbody tr'),tr=>Array.from(tr.querySelectorAll('input'),input=>input.value.trim()));
@@ -2135,58 +2387,7 @@ function renderArchivePdfReview(output,context,rows){
         target.textContent='PDF’nin aylık toplamı ile kalemler farklı. Kalemleri kontrol edip kullanılacak tutarı onaylayın.';return;
       }
     }
-    renderArchivePlan(target,options,[[columns,...values]]);
-  });
-}
-function planHistoricalArchive(context,sheets){
-  const {mode,month,due,scale,omitGas}=context;
-  if(mode==='debt'){
-    const parsed=parseHistoricalDebtSheet(sheets,month,due);
-    const filtered=parsed.entries.filter(e=>e.month===month);
-    const plan=prepareHistoricalDebts(filtered);
-    return {...plan,errors:[...parsed.errors,...plan.errors],otherPeriods:parsed.entries.length-filtered.length,
-      total:plan.accepted.reduce((sum,e)=>sum+e.amount,0)};
-  }
-  const existing=state.periods.find(p=>p.month===month);
-  const p=existing||{id:'archive_'+month,month,legacyOnly:true,status:'locked',dueDate:monthEnd(month),dues:0,boilerActive:false};
-  const cleanSheets=omitGas?sheets.map(sheet=>{
-    const header=sheet.find(row=>row.some(c=>formMeterType(c)))||[];
-    return sheet.map(row=>row.map((cell,index)=>formMeterType(header[index])==='gas'?'':cell));
-  }):sheets;
-  const parsed=readFormMeters(cleanSheets,p,scale,{historical:true});
-  const result=prepareFormMeters(p,parsed.entries);
-  const errors=[...parsed.errors,...result.errors];
-  return {...result,errors,p,newPeriod:!existing};
-}
-function renderArchivePlan(output,context,sheets){
-  const plan=planHistoricalArchive(context,sheets);
-  const debt=context.mode==='debt';
-  const rows=plan.accepted.map(e=>'<tr><td>'+esc(e.unit.label)+'</td><td>'+esc(debt?HISTORICAL_DEBT_TYPES[e.type]:FORM_METER_LABELS[e.type])+'</td>'+
-    '<td>'+(debt?trMoney2(e.amount):trNum(e.previous)+' → '+trNum(e.current))+'</td></tr>').join('');
-  output.innerHTML='<p>'+plan.accepted.length+' yeni kayıt · '+plan.repeated+' aynı kayıt · '+plan.errors.length+' sorun'+(debt?' · '+trMoney2(plan.total):'')+'</p>'+
-    (plan.otherPeriods?'<p class="small muted">'+plan.otherPeriods+' kalem başka bir döneme ait. İlgili dönem seçilerek aktarılabilir.</p>':'')+
-    plan.errors.map(e=>'<p class="small danger">'+esc(e)+'</p>').join('')+
-    (rows?'<div class="tableWrap"><table><thead><tr><th>Daire</th><th>Kalem</th><th>'+ (debt?'Tutar':'Önceki ve yeni endeks')+'</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'')+
-    (!rows&&!plan.errors.length&&!plan.repeated?'<p>Seçilen döneme ait aktarılabilir satır bulunamadı.</p>':'')+
-    (rows&&!plan.errors.length?'<button class="primary" type="button" data-commit>Onayla ve işle</button>':'');
-  output.querySelector('[data-commit]')?.addEventListener('click',async event=>{
-    const button=event.currentTarget;
-    button.disabled=true;
-    try{
-      const result=await commitSpreadsheetChange(()=>{
-        const current=planHistoricalArchive(context,sheets);
-        if(current.errors.length)throw new Error(current.errors[0]);
-        if(debt){
-          const added=applyHistoricalDebts(current.accepted.map(e=>({...e,note:e.note||context.filename})));
-          return {added,changed:added>0};
-        }
-        if(current.newPeriod&&current.accepted.length)state.periods.push(current.p);
-        current.accepted.forEach(e=>upsertMeterReading(e.unit,current.p,e.type,e.previous,e.current,
-          {source:'historical_import',sourceFile:context.filename,readAt:e.time||null}));
-        return {added:current.accepted.length,changed:current.accepted.length>0};
-      },'Geçmiş dönem dosya aktarımı',result=>context.month+' · '+result.added+' kayıt');
-      closeModal();render();notify(result.added+' geçmiş kayıt işlendi.');
-    }catch(error){notify(error.message);button.disabled=false;}
+    ready(options,[[columns,...values]]);target.textContent='PDF kontrol edildi ve toplu önizlemeye hazır.';
   });
 }
 const FORM_METER_LABELS={cold:'Soğuk su',hot:'Sıcak su',gas:'Doğalgaz'};
