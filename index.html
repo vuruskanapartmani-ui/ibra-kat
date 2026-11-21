@@ -212,6 +212,13 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
   .access-form { margin-top: 24px; }
   .access-footer { min-height: 52px; }
 }
+  .unitMonthlyReport table th,.unitMonthlyReport table td{font-variant-numeric:tabular-nums}
+  .unitMonthlyReport thead th{position:static;text-align:center;background:#edf3fa}
+  .unitMonthlyReport td{text-align:right}
+  .unitMonthlyReport tbody tr:nth-child(even){background:#f4f7fb}
+  .unitMonthlyReport tbody th{position:static;background:transparent}
+  .unitMonthlyReport tfoot{font-weight:800;background:#edf3fa}
+  @media print{.unitMonthlyReport tr{break-inside:avoid}.unitMonthlyReport thead{display:table-header-group}.unitMonthlyReport{padding:0}}
 </style>
   <title>IBRA KAT</title>
 </head>
@@ -232,7 +239,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.27';
+const APP_VERSION = 'V1.28';
 const APP_VERSION_DATE = '21.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -874,6 +881,83 @@ async function adminActivityLogs(){
 }
 const CARETAKER_METER_FORM='https://forms.gle/NV9TMjXPzEx6nWKz9';
 const meterFormLink=()=>'<a href="'+CARETAKER_METER_FORM+'" target="_blank" rel="noopener noreferrer">Google Form’u aç</a>';
+let monthlyUnitReportPeriod=null;
+let monthlyUnitReportMode='debt';
+function unitMonthlyReport(){
+  const periods=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month));
+  const p=periods.find(p=>p.id===monthlyUnitReportPeriod)||period()||periods[0];
+  const title='Aylık Borç ve Tüketim';
+  if(!p)return shell('<h2>'+title+'</h2><p>Henüz dönem kaydı yok.</p>',adminMainNav());
+  const debtMode=monthlyUnitReportMode==='debt';
+  const units=meterUnits().sort((a,b)=>a.code.localeCompare(b.code,'tr',{numeric:true}));
+  const headings=debtMode?
+    ['Soğuk su','Sıcak su','Su (birleşik)','Doğalgaz','Elektrik','Tüketim toplamı','Sabit aidat','Diğer / gecikme','Aylık toplam borç']:
+    ['Doğalgaz','Sıcak su','Soğuk su'];
+  const categories=['cold_water','hot_water','water','gas','electric','dues'];
+  const totals=Array(headings.length).fill(0);
+  const chargesByUnit=new Map(), metersByUnit=new Map();
+  for(const c of state.charges){
+    if(c.periodId!==p.id)continue;
+    if(!chargesByUnit.has(c.unitId))chargesByUnit.set(c.unitId,[]);
+    chargesByUnit.get(c.unitId).push(c);
+  }
+  for(const r of state.meterReadings){
+    if(r.periodId!==p.id)continue;
+    if(!metersByUnit.has(r.unitId))metersByUnit.set(r.unitId,new Map());
+    metersByUnit.get(r.unitId).set(r.type,r);
+  }
+  const rows=units.map(u=>{
+    let cells;
+    if(debtMode){
+      const charges=chargesByUnit.get(u.id)||[];
+      const amounts=new Map();
+      for(const c of charges){
+        const key=categories.includes(c.type)?c.type:'other';
+        amounts.set(key,(amounts.get(key)||0)+debtCents(c.amount));
+      }
+      const usage=categories.slice(0,5).reduce((sum,type)=>sum+(amounts.get(type)||0),0);
+      const grand=usage+(amounts.get('dues')||0)+(amounts.get('other')||0);
+      const values=[...categories.slice(0,5).map(key=>amounts.get(key)),amounts.size?usage:null,
+        amounts.get('dues'),amounts.get('other'),amounts.size?grand:null];
+      values.forEach((value,i)=>{totals[i]+=value||0;});
+      cells=values.map(value=>value==null?'—':trMoney2(value/100));
+    }else{
+      cells=['gas','hot','cold'].flatMap(type=>{
+        const r=metersByUnit.get(u.id)?.get(type);
+        return [r?.previous,r?.current,r?.consumption].map((value,i)=>value==null?'—':trNum(value,i===2?3:0));
+      });
+    }
+    return '<tr><th scope="row">'+esc(u.label)+'</th>'+cells.map(value=>'<td>'+value+'</td>').join('')+'</tr>';
+  }).join('');
+  const cols=headings.map(label=>'<th '+(debtMode?'scope="col"':'scope="colgroup" colspan="3"')+'>'+label+'</th>').join('');
+  const sub=debtMode?'':'<tr>'+headings.map(()=>'<th scope="col">Önceki</th><th scope="col">Yeni</th><th scope="col">Tüketim (m³)</th>').join('')+'</tr>';
+  const footer=debtMode?'<tfoot><tr><th scope="row">Apartman toplamı</th>'+totals.map(total=>'<td>'+trMoney2(total/100)+'</td>').join('')+'</tr></tfoot>':'';
+  const debtDates=[...new Set(units.flatMap(u=>(chargesByUnit.get(u.id)||[])
+    .filter(c=>c.type!=='late_fee'&&c.dueDate).map(c=>c.dueDate)))].sort();
+  const due=(debtDates.length?debtDates:p.dueDate?[p.dueDate]:[])
+    .map(date=>esc(date.split('-').reverse().join('.'))).join(', ')||'—';
+  return shell(`<div class="monthlyPaymentReport">
+    <h2 class="noPrint">${title}</h2>
+    <div class="card stack noPrint" style="margin-top:10px">
+      <label>Dönem<select id="monthlyUnitPeriod" onchange="monthlyUnitReportPeriod=this.value;render()">
+        ${periods.map(item=>`<option value="${esc(item.id)}" ${item.id===p.id?'selected':''}>${esc(isoMonthLabel(item.month))}</option>`).join('')}
+      </select></label>
+      <div class="actions">
+        <button aria-pressed="${debtMode}" class="${debtMode?'primary':''}" onclick="monthlyUnitReportMode='debt';render()">Borçlar</button>
+        <button aria-pressed="${!debtMode}" class="${!debtMode?'primary':''}" onclick="monthlyUnitReportMode='meter';render()">Tüketimler</button>
+        <button onclick="printAll()">Yazdır / PDF</button>
+      </div>
+    </div>
+    <article class="card unitMonthlyReport" style="margin-top:10px">
+      <h3>${esc(isoMonthLabel(p.month))} · ${debtMode?'Aylık Daire Borçları':'Aylık Daire Tüketimleri'}</h3>
+      <p class="small">${debtMode?'Son ödeme tarihi: '+due+' · Borçlar tahakkuk tutarlarıdır.':'Endeksler ham sayaç değeri, tüketimler metreküp olarak gösterilir.'} “—” bu kalem için kayıt olmadığını gösterir.</p>
+      <div class="tableWrap"><table aria-label="${debtMode?'Aylık daire borçları':'Aylık daire tüketimleri'}">
+        <thead><tr><th scope="col" rowspan="${debtMode?1:2}">Daire</th>${cols}</tr>${sub}</thead>
+        <tbody>${rows}</tbody>${footer}
+      </table></div>
+    </article></div>`,adminMainNav());
+}
+
 function adminUnitHub(){
   const activeRels=(state.responsibilities||[]).filter(r=>r.active).length;
   const loginOpen=(state.responsibilities||[]).filter(r=>r.loginEnabled).length;
@@ -881,6 +965,7 @@ function adminUnitHub(){
   <div class="grid3" style="margin-top:10px"><div class="card kpi"><div class="klabel">Bağımsız Bölüm</div><div class="kval">${state.units.length}</div></div><div class="card kpi"><div class="klabel">Aktif Kişi İlişkisi</div><div class="kval">${activeRels}</div></div><div class="card kpi"><div class="klabel">Giriş Açık</div><div class="kval">${loginOpen}</div></div></div>
   <div class="grid2" style="margin-top:10px">
     <button class="card" onclick="openHistoricalArchive()"><h3>Geçmiş dönem aktarımı</h3><div class="muted small">2024 ve sonrası · PDF, Excel veya CSV</div></button>
+    <button class="card" onclick="go('unitMonthly')"><h3>Aylık Borç ve Tüketim</h3><div class="muted small">Ay seçerek tüm daireleri tabloda gör ve PDF olarak yazdır</div></button>
     <button class="card" onclick="go('setup')"><h3>Adım Adım Güncelle</h3><div class="muted small">Daire bazında geçmiş borç ve başlangıç bilgileri</div></button>
     <button class="card" onclick="openMeterSourceCenter()"><h3>Google Form sayaçları</h3><div class="muted small">Sayaç yanıtları ve dönem eşleştirmesi</div></button>
     <button class="card" onclick="go('units')"><h3>Daire Yönetim Merkezi</h3><div class="muted small">Tüm daire bilgileri, tüketimler, borçlar ve geçmiş</div></button>
@@ -2113,9 +2198,14 @@ function automaticPdfRecord(document,filename){
   const augustOrder=mode==='meter'&&month==='2026-08'&&rows.length===33&&
     rows.every((r,i)=>debtUnit(r[0])?.code==='D'+String(i===24?30:i+1).padStart(2,'0'));
   if(augustOrder){rows[24][0]='D25';warnings.push('Ağustos 2026’daki teyitli Daire 25 etiketi düzeltildi.');}
-  const rooms=rows.map(r=>debtUnit(r[0])?.id);
-  if(!rooms.length||rooms.some(id=>!id)||new Set(rooms).size!==rooms.length)
-    throw new Error('PDF’deki daire numarası eksik, geçersiz veya mükerrer.');
+  const seen=new Set();
+  if(!rows.length)throw new Error('PDF’de daire satırı bulunamadı.');
+  for(const [i,row] of rows.entries()){
+    const room=debtUnit(row[0]);
+    if(!room||seen.has(room.id))throw new Error((i+1)+'. veri satırı · '+(row[0]||'Daire numarası boş')+
+      (room?' tekrarlanıyor.':' sisteme kayıtlı bir daireyle eşleşmiyor.'));
+    seen.add(room.id);
+  }
   const hasNumber=value=>{const amount=spreadsheetAmount(value);return amount!==null&&amount>=0;};
   const columns=[...archiveColumns[mode]];
   if(mode==='debt'){
@@ -2151,65 +2241,104 @@ function applyArchiveReadings(readings){
   }
   return readings.length;
 }
-async function saveAutomaticPdfBatch(files,output){
-  const log=[],records=[];
-  const status=text=>{output.textContent=text;};
+function archivePdfHelp(message){
+  if(/tarama okuyucusu|fetch|network|worker/i.test(message))return 'Bağlantıyı kontrol edip sayfayı yenileyin ve PDF’yi yeniden okuyun.';
+  if(/örnek aylık rapor|okunamadı|password|geçerli bir dönem/i.test(message))
+    return 'Belgeyi orijinal, dik ve şifresiz PDF olarak deneyin. Dönem, vade veya hücre eksik okunduysa “Belgeyi düzelt” ile PDF’deki değeri girin.';
+  if(/endeksle uyuşmuyor|farklı bir endeks/i.test(message))
+    return 'Aylık Borç ve Tüketim ekranında bu ayın ve önceki ayın endekslerini karşılaştırın. PDF yanlış okunduysa “Belgeyi düzelt” ile endeksi düzeltin.';
+  if(/çakışıyor|dosyalarda farklı|farklı yanıtlar/i.test(message))
+    return 'İlgili ayın kayıtlarını Aylık Borç ve Tüketim ekranında kontrol edin. Çakışan iki PDF varsa doğru olanı seçip yeniden okuyun.';
+  if(/endeks|gaz satırı/i.test(message))
+    return 'Önceki ve yeni endeksi PDF’den kontrol edin. Gazı daha sonra işleyecekseniz ayrıntılı aktarımda gazı hariç bırakabilirsiniz.';
+  return '“Belgeyi düzelt” ile belirtilen daire numarasını, tutarı veya tarihi PDF ile karşılaştırıp düzeltin.';
+}
+function planAutomaticPdfs(records){
+  const groups=new Map(),ready=[],held=new Map();
+  for(const record of [...records].sort((a,b)=>a.context.month.localeCompare(b.context.month))){
+    const key=record.context.month+'|'+record.context.mode;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(record);
+  }
+  for(const group of groups.values()){
+    const candidate=collectArchiveBatch([...ready,...group]);
+    if(candidate.errors.length)group.forEach(record=>held.set(record,candidate.errors));
+    else ready.push(...group);
+  }
+  return {plan:collectArchiveBatch(ready),ready,held};
+}
+async function readArchivePdfs(files,progress){
+  const entries=[];
   for(const [i,file] of files.entries()){
-    const progress=label=>status((i+1)+'/'+files.length+' · '+file.name+' · '+label);
+    const status=label=>progress((i+1)+'/'+files.length+' · '+file.name+' · '+label);
+    const entry={file};
+    entries.push(entry);
     try{
-      progress('Okunuyor…');
-      const doc=await pdfArchiveTables(file,'auto',progress);
-      const record=automaticPdfRecord(doc,file.name);
-      records.push(record);
-      log.push({ok:true,filename:file.name,text:record.context.month+(record.context.due?' · Son ödeme '+record.context.due:''),
-        warnings:record.warnings});
-    }catch(e){log.push({ok:false,filename:file.name,text:e.message,warnings:[]});}
+      status('Okunuyor…');
+      entry.doc=await pdfArchiveTables(file,'auto',status);
+      entry.record=automaticPdfRecord(entry.doc,file.name);
+    }catch(error){entry.error=error.message;}
   }
-  const summary=document.createElement('p'), filesList=document.createElement('ul');
-  output.replaceChildren(summary,filesList);
-  for(const entry of log){
-    const li=document.createElement('li');
-    li.className=entry.ok?'small':'small danger';
-    li.textContent=entry.filename+' · '+entry.text+(entry.warnings.length?' · '+entry.warnings.join(' '):'');
-    filesList.append(li);
-  }
-  if(!records.length){summary.textContent='Kaydedilecek PDF bulunamadı.';return;}
-  summary.textContent='Mevcut kayıtlar kontrol ediliyor…';
-  try{
-    const result=await commitSpreadsheetChange(()=>{
-      let plan=collectArchiveBatch(records);
-      const held=[];
-      if(plan.errors.length&&records.length>1){
-        const groups=new Map(), ready=[];
-        for(const record of [...records].sort((a,b)=>a.context.month.localeCompare(b.context.month))){
-          const key=record.context.month+'|'+record.context.mode;
-          if(!groups.has(key))groups.set(key,[]);
-          groups.get(key).push(record);
-        }
-        for(const group of groups.values()){
-          const candidate=collectArchiveBatch([...ready,...group]);
-          if(candidate.errors.length)held.push({file:group.map(r=>r.context.filename).join(', '),errors:candidate.errors.slice(0,4)});
-          else ready.push(...group);
-        }
-        plan=collectArchiveBatch(ready);
-      }
-      if(plan.errors.length)throw new Error(plan.errors.slice(0,8).join(' / '));
-      const shares=new Map(plan.debt.map(e=>[debtAllocationKey(e),e.existingAllocation?.length?e.existingAllocation.map(s=>({
-        personId:s.personId||null,amount:s.amount,
-      })):[{personId:defaultDebtPerson(e)||null,amount:e.amount}]]));
-      const added=applyArchiveDebtSplits(plan.debtEntries,shares,plan.debt);
-      const meters=applyArchiveReadings(plan.readings);
-      return {added,meters,repeated:plan.repeated,held,changed:added+meters>0};
-    },'PDF’den otomatik geçmiş dönem aktarımı',r=>r.added+' borç kalemi · '+r.meters+' sayaç');
-    summary.textContent=result.added+' borç kalemi · '+result.meters+' sayaç kaydedildi · '+result.repeated+' aynı veya ödemeli kayıt.';
-    for(const entry of result.held){
-      const li=document.createElement('li');
-      li.className='small danger';li.textContent=entry.file+' kaydedilmedi · '+entry.errors.join(' / ');
-      filesList.append(li);
-    }
-  }catch(e){summary.className='danger';summary.textContent='Otomatik kayıt durdu. '+e.message;return;}
-  if(!period())activePeriodId=state.periods[0]?.id;
-  render();
+  return entries;
+}
+function renderArchivePdfImport(output,entries,scope,edit){
+  const selected=entries.flatMap(e=>e.record&&(!scope||e.record.context.mode===scope)?[e.record]:[]);
+  const {plan,ready,held}=planAutomaticPdfs(selected);
+  const pendingDebts=plan.debt.filter(e=>!e.existingAllocation?.length);
+  const total=pendingDebts.reduce((sum,e)=>sum+debtCents(e.amount),0);
+  const canSave=pendingDebts.length||plan.readings.length;
+  output.innerHTML='<p><b>'+pendingDebts.length+' yeni borç kalemi'+(pendingDebts.length?' · '+trMoney2(total/100):'')+
+    ' · '+plan.readings.length+' yeni sayaç</b></p>'+
+    '<div class="list">'+entries.map(({file,doc,record,error},i)=>{
+      const context=record?.context||doc, excluded=context&&scope&&context.mode!==scope;
+      const problems=excluded?[]:error?[error]:held.get(record)||[];
+      const warnings=excluded?[]:record?.warnings||[];
+      const label=excluded?'Bu seçimde kapsam dışında':problems.length?'Düzeltme gerekli':'Okundu';
+      return '<div class="listitem"><b>'+esc(file.name)+'</b><p class="small">'+label+
+        (context?.month?' · '+esc(isoMonthLabel(context.month)):'')+
+        (context?.due?' · Son ödeme '+esc(context.due.split('-').reverse().join('.')):'')+'</p>'+
+        problems.map(message=>'<div class="small danger">'+esc(message)+'</div>').join('')+
+        (problems.length?'<p class="small">'+esc(archivePdfHelp(problems[0]))+'</p>':'')+
+        warnings.map(message=>'<p class="small warn">'+esc(message)+(/gaz satırı/.test(message)?' '+archivePdfHelp(message):'')+'</p>').join('')+
+        (!excluded?'<button type="button" data-pdf-edit="'+i+'">Belgeyi düzelt</button>':'')+'</div>';
+    }).join('')+'</div>'+
+    '<p class="small">'+(canSave?'Hazır kayıtları aşağıdaki düğmeyle aktarın.':ready.length?'Seçilen PDF’lerde eklenecek yeni kayıt yok.':'Bu seçimde kayda hazır kayıt yok.')+'</p>'+
+    '<button type="button" class="primary" data-pdf-commit'+(canSave?'':' disabled')+'>Sisteme yükle</button> <div data-pdf-save-result role="status"></div>';
+  $$('[data-pdf-edit]',output).forEach(button=>button.addEventListener('click',()=>edit(entries[Number(button.dataset.pdfEdit)])));
+  output.querySelector('[data-pdf-commit]').addEventListener('click',async event=>{
+    const button=event.currentTarget, message=output.querySelector('[data-pdf-save-result]');
+    const form=output.closest('form');
+    const controls=[...form.elements].filter(el=>!el.disabled);
+    controls.forEach(el=>el.disabled=true);
+    message.textContent='Kayıtlar doğrulanıyor ve yükleniyor…';
+    let saved=false;
+    try{
+      const result=await commitSpreadsheetChange(()=>{
+        const current=collectArchiveBatch(ready);
+        if(current.errors.length)throw new Error(current.errors[0]+' '+archivePdfHelp(current.errors[0]));
+        const shares=new Map(current.debt.map(e=>[debtAllocationKey(e),e.existingAllocation?.length?e.existingAllocation.map(s=>({
+          personId:s.personId||null,amount:s.amount,
+        })):[{personId:defaultDebtPerson(e)||null,amount:e.amount}]]));
+        const added=applyArchiveDebtSplits(current.debtEntries,shares,current.debt);
+        const meters=applyArchiveReadings(current.readings);
+        return {added,meters,changed:added+meters>0};
+      },'PDF’den geçmiş dönem aktarımı',r=>r.added+' borç kalemi · '+r.meters+' sayaç');
+      saved=true;
+      message.textContent=result.added+' borç kalemi · '+result.meters+' sayaç kaydedildi.';
+      const report=document.createElement('button');
+      report.type='button';report.textContent='Aylık Borç ve Tüketimi Aç';
+      report.onclick=()=>{
+        const latest=ready.map(r=>r.context.month).sort().at(-1);
+        monthlyUnitReportPeriod=state.periods.find(p=>p.month===latest)?.id;
+        monthlyUnitReportMode=result.added?'debt':'meter';
+        closeModal();go('unitMonthly');
+      };
+      message.append(' ',report);
+      if(!period())activePeriodId=state.periods[0]?.id;
+      render();
+    }catch(error){message.textContent=error.message;}
+    finally{controls.forEach(el=>el.disabled=false);button.disabled=saved;}
+  });
 }
 function debtResponsibilityOptions(unitId,month){
   const start=month+'-01', end=monthEnd(month);
@@ -2289,7 +2418,7 @@ function archiveDebtPlan(entries){
     if(matched.length){
       if(!matched.every(c=>c.type===e.type&&c.dueDate===e.due&&c.source==='legacy_manual')||
          matched.reduce((sum,c)=>sum+debtCents(c.amount),0)!==debtCents(e.amount)){
-        errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' mevcut kayıtla çakışıyor.');continue;
+        errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' mevcut kayıtla çakışıyor. PDF '+trMoney2(e.amount)+' (vade '+e.due+'), kayıtlı '+trMoney2(matched.reduce((sum,c)=>sum+c.amount,0))+' (vade '+[...new Set(matched.map(c=>c.dueDate||'—'))].join(', ')+').');continue;
       }
       const paid=state.payments.some(pay=>matched.some(c=>c.id===pay.chargeId||'late_'+c.id===pay.chargeId));
       if(paid){repeated++;continue;}
@@ -2340,35 +2469,45 @@ function applyArchiveDebtSplits(entries,selections,preview){
 function openHistoricalArchive(){
   if(session?.role!=='manager')return;
   openModal('<h2>Geçmiş dönem aktarımı</h2>'+
-    '<form class="card stack" id="archiveDirectPdf"><h3>PDF’leri otomatik kaydet</h3>'+
-    '<p class="small muted">Birden fazla aya ait borç ve tüketim PDF’si seçebilirsin. Dönem ve vade PDF’den okunur. Uygun kayıtlar doğrudan kaydedilir.</p>'+
+    '<form class="card stack" id="archiveDirectPdf"><h3>PDF aktarımı</h3>'+
+    '<p class="small muted">Bir veya birden fazla aya ait PDF seçin. Dosyaları okuyup kontrol ettikten sonra sisteme yükleyin.</p>'+
+    '<label>Aktarılacak kayıtlar<select name="scope"><option value="">Borç ve tüketim</option><option value="debt">Sadece borç</option><option value="meter">Sadece tüketim</option></select></label>'+
     '<label>PDF dosyaları<input type="file" name="files" accept=".pdf" multiple required></label>'+
-    '<button class="primary" type="submit">PDF’leri oku ve kaydet</button><div data-pdf-results aria-live="polite"></div></form>'+
+    '<button class="primary" type="submit">PDF’leri oku</button><div data-pdf-results aria-live="polite"></div></form>'+
     '<h3 style="margin-top:14px">Ayrıntılı aktarım</h3><p>Dosyaları incelemek veya borçları kişiler arasında paylaştırmak için bu bölümü kullanın.</p>'+
     '<label>Dosyalar<input type="file" id="archiveBatchFiles" accept=".pdf,.xlsx,.xls,.csv" multiple></label>'+
     '<div class="actions"><button type="button" id="archiveManual">Elle borç kalemi ekle</button><button type="button" id="archivePrepareAll">Tüm dosyaları hazırla</button></div><div id="archiveFileQueue"></div>'+
     '<div class="actions"><button type="button" class="primary" id="archiveBatchPreview">Tüm kayıtları birlikte önizle</button></div>'+
     '<div id="archiveBatchResult" aria-live="polite"></div>');
   const queue=$('#archiveFileQueue'), result=$('#archiveBatchResult'), records=[];
-  $('#archiveDirectPdf').addEventListener('submit',async event=>{
+  const pdfForm=$('#archiveDirectPdf'), pdfOutput=pdfForm.querySelector('[data-pdf-results]');
+  let pdfEntries=[];
+  const showPdfs=()=>renderArchivePdfImport(pdfOutput,pdfEntries,pdfForm.elements.scope.value,({file,doc})=>{
+    const item=records.find(record=>record.file===file)||addItem(file,doc);
+    item.form.scrollIntoView({block:'center'});
+    item.form.elements.month.focus({preventScroll:true});
+  });
+  pdfForm.elements.scope.addEventListener('change',()=>{if(pdfEntries.length)showPdfs();});
+  pdfForm.elements.files.addEventListener('change',()=>{pdfEntries=[];pdfOutput.replaceChildren();});
+  pdfForm.addEventListener('submit',async event=>{
     event.preventDefault();
-    const form=event.currentTarget,input=form.elements.files,button=form.querySelector('button');
-    const files=[...input.files];
-    if(!files.length)return;
-    button.disabled=true;input.disabled=true;
-    try{await saveAutomaticPdfBatch(files,form.querySelector('[data-pdf-results]'));}
-    finally{button.disabled=false;input.disabled=false;}
+    const {files,scope}=pdfForm.elements, button=event.submitter;
+    [button,files,scope].forEach(el=>el.disabled=true);
+    try{
+      pdfEntries=await readArchivePdfs([...files.files],text=>{pdfOutput.textContent=text;});
+      showPdfs();
+    }finally{[button,files,scope].forEach(el=>el.disabled=false);}
   });
 
   const clearPlan=()=>result.replaceChildren();
-  function addItem(file){
+  function addItem(file,doc){
     const item={file,context:null,sheets:null};
     const panel=document.createElement('section');
     panel.className='card';
     panel.style.marginTop='10px';
-    const kind=file&&/tuketim|sayac/i.test(sheetKey(file.name))?'meter':'debt';
+    const kind=doc?.mode||(file&&/tuketim|sayac/i.test(sheetKey(file.name))?'meter':'debt');
     const namedMonth=file?.name.match(/(?:^|[^0-9])(20\d{2})[-_. ]?(0[1-9]|1[0-2])(?=\D|$)/);
-    const month=namedMonth?namedMonth[1]+'-'+namedMonth[2]:'';
+    const month=doc?.month||(namedMonth?namedMonth[1]+'-'+namedMonth[2]:'');
     const fields=file?
       '<label>Kayıt türü<select name="mode"><option value="debt">Borç kalemleri</option><option value="meter"'+(kind==='meter'?' selected':'')+'>Sayaç ve tüketim</option></select></label>'+
       '<label>Sayaç birimi<select name="scale"><option value="1">Ham endeks</option><option value="1000">Metreküp</option></select></label>'+
@@ -2378,7 +2517,7 @@ function openHistoricalArchive(){
       '<label>Tutar (TL)<input name="amount" required inputmode="decimal" type="number" min="0.01" step="0.01"></label>';
     panel.innerHTML='<div class="sectionHead"><h3>'+esc(file?.name||'Elle borç kalemi')+'</h3><button type="button" data-drop>Çıkar</button></div>'+
       '<form class="stack"><div class="grid2">'+fields+'<label>Dönem<input type="month" name="month" min="2024-01" max="'+todayISO().slice(0,7)+'" value="'+month+'" required></label>'+
-      '<label>Son ödeme tarihi<input type="date" name="due"></label></div><button type="submit">'+(file?'Dosyayı hazırla':'Kalemi hazırla')+'</button></form>'+
+      '<label>Son ödeme tarihi<input type="date" name="due" value="'+esc(doc?.due||'')+'"></label></div><button type="submit">'+(file?'Dosyayı hazırla':'Kalemi hazırla')+'</button></form>'+
       '<div data-file-status aria-live="polite"></div>';
     queue.append(panel);records.push(item);clearPlan();
     panel.querySelector('[data-drop]').addEventListener('click',()=>{
@@ -2405,7 +2544,7 @@ function openHistoricalArchive(){
         }else if(/\.pdf$/i.test(file.name)){
           context.scale=1;
           if(context.mode==='debt'&&!context.due)throw new Error('Borç PDF’sindeki son ödeme tarihini girin.');
-          const rows=await pdfArchiveTables(file,context.mode,text=>{status.textContent=text;});
+          const rows=doc?.mode===context.mode?doc.rows:await pdfArchiveTables(file,context.mode,text=>{status.textContent=text;});
           renderArchivePdfReview(status,context,rows,(settings,sheets)=>ready(settings,sheets),reset);
         }else{
           const sheets=await uploadSheet(file,sheets=>sheets);
@@ -2416,6 +2555,8 @@ function openHistoricalArchive(){
     };
     item.prepare=prepare;
     form.addEventListener('submit',event=>{event.preventDefault();void prepare();});
+    if(doc?.rows&&month&&(kind!=='debt'||doc.due))void prepare();
+    return item;
   }
   $('#archivePrepareAll').addEventListener('click',async event=>{
     const button=event.currentTarget;
@@ -2466,7 +2607,7 @@ function collectArchiveBatch(records){
   try{
     state.periods=[...savedPeriods];state.meterReadings=[...savedReadings];
     for(const {p,entries} of [...meterGroups.values()].sort((a,b)=>a.p.month.localeCompare(b.p.month))){
-      const current=prepareFormMeters(p,entries);
+      const current=prepareFormMeters(p,entries,{historical:true});
       errors.push(...current.errors.map(e=>p.month+' · '+e));repeated+=current.repeated;
       if(!state.periods.some(x=>x.month===p.month))state.periods.push(p);
       current.accepted.forEach(e=>{
@@ -2484,13 +2625,14 @@ function renderArchiveBatchPlan(output,records){
     ' yeni sayaç · '+plan.repeated+' aynı veya ödemeli kayıt · '+trMoney2(amounts/100)+'</p>'+
     (plan.otherPeriods?'<p class="small">'+plan.otherPeriods+' borç kalemi başka döneme ait.</p>':'')+
     plan.errors.map(e=>'<p class="danger">'+esc(e)+'</p>').join('')+
+    (plan.errors.length?'<p>'+esc(archivePdfHelp(plan.errors[0]))+'</p>':'')+
     (plan.debt.length?'<p>Her borcu açarak sorumluyu ve tutarı belirleyin. Bir ayın tamamında tek tarihli sorumlu varsa önerilir. Geçiş aylarında dağılımı kendiniz yapabilirsiniz.</p>':'')+
     plan.debt.map(e=>'<details class="card" data-allocation><summary>'+esc(e.unit.label)+' · '+e.month+' · '+esc(HISTORICAL_DEBT_TYPES[e.type])+
       ' · '+trMoney2(e.amount)+(e.existingAllocation?' · mevcut':'')+'</summary><div data-parts></div><button type="button" data-add>Pay ekle</button></details>').join('')+
     (plan.readings.length?'<details><summary>Sayaç endekslerini göster</summary><div class="tableWrap"><table><thead><tr><th>Daire</th><th>Dönem</th><th>Sayaç</th><th>Önceki</th><th>Yeni</th></tr></thead><tbody>'+
       plan.readings.map(e=>'<tr><td>'+esc(e.unit.label)+'</td><td>'+e.p.month+'</td><td>'+esc(FORM_METER_LABELS[e.type])+'</td><td>'+trNum(e.previous)+'</td><td>'+trNum(e.current)+'</td></tr>').join('')+'</tbody></table></div></details>':'')+
     '<div data-batch-error role="alert" class="danger"></div>'+
-    (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<button type="button" class="primary" data-batch-commit>Onayla ve toplu işle</button>':'');
+    (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<button type="button" class="primary" data-batch-commit>Onayla ve sisteme yükle</button>':'');
   bindDebtSplits(output,plan.debt);
   output.querySelector('[data-batch-commit]')?.addEventListener('click',async event=>{
     const button=event.currentTarget, error=output.querySelector('[data-batch-error]');
@@ -2514,8 +2656,8 @@ function renderArchivePdfReview(output,context,rows,ready,reset){
     '<div class="tableWrap"><table><thead><tr>'+columns.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
     rows.map((row,i)=>'<tr>'+columns.map((col,j)=>'<td><input style="min-width:90px" aria-label="'+col+' · '+(i+1)+'" value="'+esc(row[j]||'')+'"></td>').join('')+'</tr>').join('')+
     '</tbody></table></div>'+
-    (context.mode==='meter'?'<label><input type="checkbox" data-omit-gas> Gaz alanlarını bu aktarımda işleme</label>':
-      '<label><input type="checkbox" data-use-components> PDF toplamıyla fark varsa kuruşlu kalemleri esas al</label>')+
+    (context.mode==='meter'?'<label class="switch"><input style="width:auto;min-height:0" type="checkbox" data-omit-gas> Gaz alanlarını bu aktarımda işleme</label>':
+      '<label class="switch"><input style="width:auto;min-height:0" type="checkbox" data-use-components> PDF’deki kalemleri doğruladım, fark varsa kuruşlu kalemleri esas al</label>')+
     '<button type="button" data-review>Kontrol ettim, eşleştirmeyi göster</button><div data-plan></div>';
   output.oninput=event=>{
     if(event.target.closest('tbody')||event.target.matches('[type=checkbox]')){reset();output.querySelector('[data-plan]').replaceChildren();}
@@ -2533,15 +2675,16 @@ function renderArchivePdfReview(output,context,rows,ready,reset){
     if(context.mode==='debt'){
       const differences=values.map(row=>({unit:row[0],difference:row.slice(1,6).reduce((sum,v)=>sum+spreadsheetAmount(v),0)-spreadsheetAmount(row[6])}));
       const large=differences.filter(x=>Math.abs(x.difference)>=1);
-      if(large.length){
-        target.innerHTML='<p class="danger">PDF toplamıyla 1 TL veya daha fazla fark var. Aşağıdaki dairelerin okunan kalemlerini veya PDF toplamını kontrol edin.</p>'+
+      const useComponents=output.querySelector('[data-use-components]').checked;
+      if(large.length&&!useComponents){
+        target.innerHTML='<p class="danger">Aşağıdaki dairelerde fark en az 1 TL. PDF yanlış okunduysa ilgili hücreleri düzeltin. PDF’deki kalemler doğruysa onay kutusunu işaretleyin.</p>'+
           large.map(x=>'<p>'+esc(x.unit)+' · '+trMoney2(x.difference)+'</p>').join('');return;
       }
-      if(differences.some(x=>Math.abs(x.difference)>0.005)&&!output.querySelector('[data-use-components]').checked){
+      if(differences.some(x=>Math.abs(x.difference)>0.005)&&!useComponents){
         target.textContent='PDF’nin aylık toplamı ile kalemler farklı. Kalemleri kontrol edip kullanılacak tutarı onaylayın.';return;
       }
     }
-    ready(options,[[columns,...values]]);target.textContent='PDF kontrol edildi ve toplu önizlemeye hazır.';
+    ready(options,[[columns,...values]]);target.textContent='PDF hazır. Kaydetmek için aşağıdan “Tüm kayıtları birlikte önizle”, ardından “Onayla ve sisteme yükle” düğmesine basın.';
   });
 }
 const FORM_METER_LABELS={cold:'Soğuk su',hot:'Sıcak su',gas:'Doğalgaz'};
@@ -2610,12 +2753,14 @@ function readFormMeters(sheets,p,scale,{historical=false,requirePeriod=false}={}
   if(!found)errors.push('Dosyada daire ve soğuk su, sıcak su veya doğalgaz sayaç başlıkları bulunamadı.');
   return {entries,errors};
 }
-function lastKnownMeterReading(p,entry){
-  const older=new Map(state.periods.filter(x=>x.month<p.month).map(x=>[x.id,x.month]));
+function lastKnownMeterReading(p,entry,adjacentOnly=false){
+  const [year,month]=p.month.split('-').map(Number);
+  const previousMonth=new Date(Date.UTC(year,month-2,1)).toISOString().slice(0,7);
+  const older=new Map(state.periods.filter(x=>adjacentOnly?x.month===previousMonth:x.month<p.month).map(x=>[x.id,x.month]));
   return state.meterReadings.filter(r=>r.unitId===entry.unit.id&&r.type===entry.type&&older.has(r.periodId)&&Number.isFinite(r.current))
     .sort((a,b)=>older.get(b.periodId).localeCompare(older.get(a.periodId)))[0]?.current??null;
 }
-function prepareFormMeters(p,entries){
+function prepareFormMeters(p,entries,{historical=false}={}){
   const errors=[],accepted=[],latest=new Map(),conflicts=new Set();
   let repeated=0;
   for(const e of entries){
@@ -2632,9 +2777,9 @@ function prepareFormMeters(p,entries){
     if(conflicts.has(key)){errors.push(label+' için aynı zamanda farklı yanıtlar var.');continue;}
     const existing=state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===e.unit.id&&r.type===e.type);
     if(existing&&existing.current===e.current&&(e.previous===null||e.previous===existing.previous)){repeated++;continue;}
-    if(existing){errors.push(label+' için IBRAKAT’ta farklı bir endeks kayıtlı.');continue;}
-    const known=lastKnownMeterReading(p,e);
-    if(known!==null&&e.previous!==null&&known!==e.previous){errors.push(label+' önceki endeksle uyuşmuyor.');continue;}
+    if(existing){errors.push(label+' için IBRAKAT’ta farklı bir endeks kayıtlı. PDF '+(e.previous??'—')+' → '+e.current+', kayıtlı '+(existing.previous??'—')+' → '+existing.current+'.');continue;}
+    const known=lastKnownMeterReading(p,e,historical&&e.previous!==null);
+    if(known!==null&&e.previous!==null&&known!==e.previous){errors.push(label+' önceki endeksle uyuşmuyor. PDF '+e.previous+', kayıtlı '+known+'.');continue;}
     const previous=e.previous??known;
     if(previous===null){errors.push(label+' için önceki gerçek endeks gerekli.');continue;}
     if(e.current<previous){errors.push(label+' yeni endeks önceki değerden düşük.');continue;}
@@ -3655,7 +3800,7 @@ function render(){
   const reg=registrationCode(); if(reg && UNIT_UUIDS[reg]){app.innerHTML=renderResidentRegistration(reg);return}
   if(!session){app.innerHTML=renderLogin();return}
   if(session.role==='manager'){
-    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='driveBackups')adminDriveBackups().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='residentApprovals')managerResidentApprovals().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
+    if(route==='home')app.innerHTML=managerHome(); else if(route==='periods')app.innerHTML=managerPeriods(); else if(route==='periodDetail')app.innerHTML=managerPeriodDetail(); else if(route==='units')app.innerHTML=managerUnits(); else if(route==='residents')app.innerHTML=managerResidents(); else if(route==='access')app.innerHTML=managerAccess(); else if(route==='assessments')app.innerHTML=managerAssessments(); else if(route==='accounting')app.innerHTML=managerAccounting(); else if(route==='monthly')app.innerHTML=managerMonthly(); else if(route==='accounts')app.innerHTML=managerAccounts(); else if(route==='reports')app.innerHTML=managerReports(); else if(route==='setup')app.innerHTML=managerSetup(); else if(route==='library')app.innerHTML=managerLibrary(); else if(route==='unitHub')app.innerHTML=adminUnitHub(); else if(route==='unitMonthly')app.innerHTML=unitMonthlyReport(); else if(route==='financeHub')app.innerHTML=adminFinanceHub(); else if(route==='activityLogs')adminActivityLogs().then(html=>{app.innerHTML=html}); else if(route==='reportArchive')managerReportArchive().then(html=>{app.innerHTML=html}); else if(route==='driveBackups')adminDriveBackups().then(html=>{app.innerHTML=html}); else if(route==='leaveManagement')adminLeaveManagement().then(html=>{app.innerHTML=html}); else if(route==='residentApprovals')managerResidentApprovals().then(html=>{app.innerHTML=html}); else if(route==='authUsers')managerAuthUsers().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=managerHome()}
   } else if(session.role==='caretaker'){
     if(route==='home')app.innerHTML=caretakerHome(); else if(route==='meters')app.innerHTML=caretakerMeters(); else if(route==='meterEntry')app.innerHTML=meterEntry(); else if(route==='invoices')app.innerHTML=caretakerInvoices(); else if(route==='expenses')app.innerHTML=caretakerExpenses(); else if(route==='history')app.innerHTML=caretakerHistory(); else if(route==='library')app.innerHTML=caretakerLibrary(); else if(route==='caretakerPeriods')app.innerHTML=caretakerPeriods(); else if(route==='caretakerPeriodDetail')app.innerHTML=caretakerPeriodDetail(); else if(route==='caretakerOps')app.innerHTML=caretakerOperations(); else if(route==='myLeaves')caretakerLeaves().then(html=>{app.innerHTML=html}); else {route='home';app.innerHTML=caretakerHome()}
   } else app.innerHTML=unitPortal();
