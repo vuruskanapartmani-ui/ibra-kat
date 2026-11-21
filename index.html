@@ -232,7 +232,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.24';
+const APP_VERSION = 'V1.25';
 const APP_VERSION_DATE = '21.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -589,6 +589,7 @@ async function login(code,password){
       localStorage.setItem(STORE_KEY,JSON.stringify(state));
     }
     route='home';render();
+    if(role==='manager'&&!session.mustChangePassword)void syncGoogleMeterRows(true);
     cloudActivity('Giriş yaptı','Sisteme başarılı giriş',{kind:'login'});
     if(session.mustChangePassword)setTimeout(()=>openChangePassword(true),200);
     return null;
@@ -871,12 +872,17 @@ async function adminActivityLogs(){
     return shell(`<div class="sectionHead"><div><h2>Kullanıcı Hareket Kayıtları</h2><div class="muted small">Kim, ne zaman girdi ve sistemde ne yaptı?</div></div><span class="badge">Son ${rows.length} kayıt</span></div><div class="card" style="margin-top:10px"><div class="grid3"><label>Daire<select id="logUnitFilter" onchange="render()"><option value="">Tüm daireler</option>${unitOpts}</select></label><label>Rol<select id="logRoleFilter" onchange="render()"><option value="">Tüm roller</option><option value="caretaker" ${role==='caretaker'?'selected':''}>Kat Görevlisi</option><option value="owner" ${role==='owner'?'selected':''}>Malik</option><option value="tenant" ${role==='tenant'?'selected':''}>Kiracı</option><option value="manager" ${role==='manager'?'selected':''}>Admin</option></select></label><label>Ara<input id="logSearch" value="${esc(search)}" placeholder="Kullanıcı, işlem..." oninput="clearTimeout(window._logT);window._logT=setTimeout(()=>render(),250)"></label></div></div><div class="tableWrap" style="margin-top:10px"><table><thead><tr><th>Tarih/Saat</th><th>Daire</th><th>Kullanıcı</th><th>Rol</th><th>İşlem</th><th>Detay</th></tr></thead><tbody>${table||'<tr><td colspan="6">Kayıt bulunamadı.</td></tr>'}</tbody></table></div>`,adminMainNav());
   }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Loglar alınamadı.')}</div>`,adminMainNav())}
 }
+const CARETAKER_METER_FORM='https://forms.gle/NV9TMjXPzEx6nWKz9';
+const meterFormLink=()=>'<a href="'+CARETAKER_METER_FORM+'" target="_blank" rel="noopener noreferrer">Google Form’u aç</a>';
 function adminUnitHub(){
   const activeRels=(state.responsibilities||[]).filter(r=>r.active).length;
   const loginOpen=(state.responsibilities||[]).filter(r=>r.loginEnabled).length;
   const c=`<div class="sectionHead"><div><h2>Daire Yönetimi</h2><div class="muted small">Daire bilgileri, kişiler ve giriş hesapları tek yerde.</div></div></div>
   <div class="grid3" style="margin-top:10px"><div class="card kpi"><div class="klabel">Bağımsız Bölüm</div><div class="kval">${state.units.length}</div></div><div class="card kpi"><div class="klabel">Aktif Kişi İlişkisi</div><div class="kval">${activeRels}</div></div><div class="card kpi"><div class="klabel">Giriş Açık</div><div class="kval">${loginOpen}</div></div></div>
   <div class="grid2" style="margin-top:10px">
+    <button class="card" onclick="openHistoricalArchive()"><h3>Geçmiş dönem aktarımı</h3><div class="muted small">2024 ve sonrası · PDF, Excel veya CSV</div></button>
+    <button class="card" onclick="go('setup')"><h3>Adım Adım Güncelle</h3><div class="muted small">Daire bazında geçmiş borç ve başlangıç bilgileri</div></button>
+    <button class="card" onclick="openMeterSourceCenter()"><h3>Google Form sayaçları</h3><div class="muted small">Sayaç yanıtları ve dönem eşleştirmesi</div></button>
     <button class="card" onclick="go('units')"><h3>Daire Yönetim Merkezi</h3><div class="muted small">Tüm daire bilgileri, tüketimler, borçlar ve geçmiş</div></button>
     <button class="card" onclick="go('residents')"><h3>Kişiler</h3><div class="muted small">Malik, kiracı, oturan ve geçmiş kişi tanımları</div></button>
     <button class="card" onclick="go('authUsers')"><h3>Giriş Hesapları</h3><div class="muted small">Daire numarasıyla giriş, şifre sıfırlama ve erişim kontrolü</div></button>
@@ -1280,7 +1286,7 @@ function managerUnits(){
   const c=`<div class="sectionHead"><div><h2>Daire Yönetim Merkezi</h2><div class="muted small">Kişiler, tüketimler, borçlar, ödemeler, geçmiş dönemler ve başlangıç verileri tek yerde.</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="card" style="margin-top:10px"><div class="unitSearchBar"><label>Ara<input id="unitSearch" placeholder="Daire veya kişi" oninput="unitCenterFilter()"></label><label>Tür<select id="unitKindFilter" onchange="unitCenterFilter()"><option value="all">Tümü</option><option value="apartment">Daireler</option><option value="shop">Dükkanlar</option></select></label><label>Bakiye<select id="unitBalanceFilter" onchange="unitCenterFilter()"><option value="all">Tümü</option><option value="debt">Borçlu</option><option value="credit">Alacaklı</option><option value="zero">Sıfır</option></select></label></div></div>
   <div class="lateRule" style="margin-top:10px"><b>Gecikme kuralı:</b> faiz, her borç satırının senin belirlediğin <b>son ödeme tarihinin ertesi günü</b> başlar. Son ödeme gününün kendisinde faiz oluşmaz.</div>
-  <div class="historyHint" style="margin-top:10px"><b>Geçmiş veri:</b> geçmiş tüketimleri ve hesap hareketlerini verdiğinde dönem/tarih bazında aynı daire kartlarına işleyebiliriz; eski kiracı/malik ilişkileri korunur.</div>
+  <div class="actions" style="margin-top:10px"><button class="primary" onclick="openHistoricalArchive()">Geçmiş dönem aktarımı</button><button onclick="go('setup')">Adım Adım Güncelle</button><button onclick="openMeterSourceCenter()">Google Form sayaçları</button></div>
   <div class="tableWrap" style="margin-top:10px"><table class="unitSummaryTable"><thead><tr><th>Bölüm</th><th>Aktif kişi</th><th>Soğuk</th><th>Sıcak</th><th>Gaz</th><th>Tahakkuk</th><th>Ödeme</th><th>Bakiye</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   return shell(c,[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'units',ico:'🏠',label:'Daireler'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}]);
 }
@@ -1831,6 +1837,12 @@ function debtUnit(value){
 }
 function monthFromCell(value){
   const text=String(value??'').trim();
+  const months=['OCAK','SUBAT','MART','NISAN','MAYIS','HAZIRAN','TEMMUZ','AGUSTOS','EYLUL','EKIM','KASIM','ARALIK'];
+  const words=sheetKey(text).split(' ');
+  if(words.length===2){
+    const year=words.find(word=>/^\d{4}$/.test(word)), month=months.findIndex(name=>words.includes(name));
+    if(year&&month>=0)return year+'-'+String(month+1).padStart(2,'0');
+  }
   const direct=text.match(/^(\d{4})[-/.](0?[1-9]|1[0-2])$/);
   if(direct)return direct[1]+'-'+direct[2].padStart(2,'0');
   const tr=text.match(/^(0?[1-9]|1[0-2])[-/.](\d{4})$/);
@@ -2190,7 +2202,7 @@ function meterCell(value,scale){
   const number=Number(text)*scale;
   return Number.isFinite(number)&&number<=Number.MAX_SAFE_INTEGER?Math.round(number*1000)/1000:null;
 }
-function readFormMeters(sheets,p,scale,{historical=false}={}){
+function readFormMeters(sheets,p,scale,{historical=false,requirePeriod=false}={}){
   const entries=[],errors=[];
   let found=false;
   const unitLabels=['DAIRE','DAIRE NO','DAIRE NUMARASI','DAIRE KODU','DAIRE SECINIZ','BOLUM','BOLUM KODU'];
@@ -2201,16 +2213,18 @@ function readFormMeters(sheets,p,scale,{historical=false}={}){
     found=true;
     const header=rows[hi].map(sheetKey);
     const column=(...names)=>header.findIndex(key=>names.includes(key));
-    const ui=column(...unitLabels),periodIndex=column('DONEM','OKUMA DONEMI','SAYAC DONEMI','AY');
+    const ui=column(...unitLabels),periodIndex=column('DONEM','OKUMA DONEMI','SAYAC DONEMI','AY','HANGI AYIN DEGERLERI GIRILIYOR');
+    if(requirePeriod&&periodIndex<0){errors.push('Dönem sütunu bulunamadı.');continue;}
     const timeIndex=column('ZAMAN DAMGASI','TIMESTAMP','OKUMA TARIHI','TARIH','GONDERIM TARIHI');
     const reportedGas=historical?column('GAZ TUKETIMI','DOGALGAZ TUKETIMI'):-1;
     const cols=header.map((name,index)=>{
       const code=name.match(/\b(?:DAIRE(?: NO)?|D) ?(\d{1,2})\b/);
-      return {index,type:formMeterType(name),unit:ui<0&&code?debtUnit(code[1]):null,previous:oldReading(name)};
+      return {index,type:!historical&&/\b(FATURA|BEDEL|TUTAR|ODEME)\b/.test(name)?null:formMeterType(name),unit:ui<0&&code?debtUnit(code[1]):null,previous:oldReading(name)};
     }).filter(c=>c.type&&c.index!==reportedGas&&(ui>=0||c.unit));
     rows.slice(hi+1).forEach((row,index)=>{
       if(!row.some(v=>String(v??'').trim()))return;
       const label='Satır '+(hi+index+2),time=spreadsheetDateKey(row[timeIndex]);
+      if(requirePeriod&&!String(row[periodIndex]??'').trim()){errors.push(label+' · dönem boş.');return;}
       if(periodIndex>=0&&String(row[periodIndex]??'').trim()){
         const rowMonth=monthFromCell(row[periodIndex]);
         if(!rowMonth){errors.push(label+' · dönem geçersiz.');return;}
@@ -2272,6 +2286,74 @@ function prepareFormMeters(p,entries){
     accepted.push({...e,previous});
   }
   return {accepted,errors,repeated};
+}
+let googleMeterReport=null;
+let googleMeterBusy=false;
+function openMeterSourceCenter(){
+  if(session?.role!=='manager')return;
+  const drafts=state.periods.filter(p=>p.status==='draft'&&!p.legacyOnly).sort((a,b)=>b.month.localeCompare(a.month));
+  const choices=drafts.map((p,i)=>'<button type="button" data-meter-period="'+i+'">'+esc(isoMonthLabel(p.month))+' · Yanıt dosyası yükle</button>').join('');
+  openModal('<h2>Google Form sayaçları</h2><p>Google E-Tablolar’daki sayaç yanıtları açık dönemlerle eşleştirilir. Fatura bilgilerini IBRAKAT’tan girin.</p>'+
+    '<div class="actions">'+meterFormLink()+'</div>'+
+    '<div class="actions"><button class="primary" type="button" onclick="syncGoogleMeterRows()">Google yanıtlarını çek</button>'+choices+'</div>'+
+    (!choices?'<p class="small muted">Önce ilgili ay için bir taslak dönem açın.</p>':'')+
+    '<div id="googleMeterSyncStatus" aria-live="polite"></div>');
+  $$('[data-meter-period]',$('#modalBack')).forEach(button=>button.addEventListener('click',()=>openFormMeterImport(drafts[Number(button.dataset.meterPeriod)].id)));
+  renderGoogleMeterStatus();
+}
+function renderGoogleMeterStatus(){
+  const out=$('#googleMeterSyncStatus');
+  if(!out)return;
+  const r=googleMeterReport;
+  out.innerHTML=googleMeterBusy?'<p>Google yanıtları denetleniyor…</p>':!r?'<p class="small muted">Sonuç burada gösterilir.</p>':
+    '<p class="'+(r.error?'danger':'muted')+'">'+esc(r.error||r.added+' yeni endeks · '+r.repeated+' mevcut kayıt · '+r.errors.length+' kontrol gerekli')+'</p>'+
+    (r.errors||[]).map(error=>'<div class="small danger">'+esc(error)+'</div>').join('');
+}
+function collectGoogleMeterPlans(sheets){
+  const plan={items:[],repeated:0,errors:[]};
+  for(const p of state.periods.filter(x=>x.status==='draft'&&!x.legacyOnly)){
+    const parsed=readFormMeters(sheets,p,1,{requirePeriod:true});
+    const result=prepareFormMeters(p,parsed.entries);
+    plan.items.push(...result.accepted.map(e=>({period:p,...e})));
+    plan.errors.push(...parsed.errors,...result.errors.map(e=>p.month+' · '+e));
+    plan.repeated+=result.repeated;
+  }
+  plan.errors=[...new Set(plan.errors)];
+  return plan;
+}
+async function syncGoogleMeterRows(silent=false){
+  if(session?.role!=='manager'||googleMeterBusy)return;
+  googleMeterBusy=true;
+  renderGoogleMeterStatus();
+  try{
+    if(!publicSb||!authSession)throw new Error('Bulut oturumu gerekli.');
+    const {data,error}=await publicSb.rpc('ibrakat_meter_form_snapshot');
+    if(error)throw new Error(error.code==='PGRST202'?'Özel Google E-Tablolar bağlantısı henüz etkin değil. Yanıt dosyasını yükleyebilirsiniz.':error.message);
+    if(!Array.isArray(data?.rows)||data.rows.length<2){
+      googleMeterReport={added:0,repeated:0,errors:['Bağlı tablodan henüz sayaç yanıtı gelmedi.']};
+      return;
+    }
+    const preview=collectGoogleMeterPlans([data.rows]);
+    if(!preview.items.length){googleMeterReport={added:0,repeated:preview.repeated,errors:preview.errors};return;}
+    const result=await commitSpreadsheetChange(()=>{
+      const plan=collectGoogleMeterPlans([data.rows]);
+      plan.items.forEach(e=>upsertMeterReading(e.unit,e.period,e.type,e.previous,e.current,{source:'google_form',readAt:e.time||null}));
+      return {added:plan.items.length,changed:plan.items.length>0,repeated:plan.repeated,errors:plan.errors};
+    },'Google Form sayaç eşitlemesi',r=>r.added+' endeks');
+    googleMeterReport=result;
+    if(result.changed){
+      const showCenter=!!$('#googleMeterSyncStatus');
+      render();
+      if(showCenter)renderGoogleMeterStatus();
+      if(result.added)notify(result.added+' Google Form endeksi kaydedildi.');
+    }
+  }catch(e){
+    googleMeterReport={error:e.message,errors:[]};
+    if(!silent&&!$('#googleMeterSyncStatus'))notify(e.message);
+  }finally{
+    googleMeterBusy=false;
+    renderGoogleMeterStatus();
+  }
 }
 function openFormMeterImport(pId){
   if(session?.role!=='manager')return;
@@ -2988,6 +3070,7 @@ function meterEntry(){
       <div><div class="small muted">${isoMonthLabel(p.month)} · Sayaç Girişi</div><b>${done}/33 daire tamamlandı · Sıra 33 → 1</b></div>
       <button type="button" class="meterMissingBtn" onclick="meterJumpNextMissing()">Sonraki eksik</button>
     </div>
+    <div class="actions"><span class="small muted">Alternatif sayaç girişi</span>${meterFormLink()}</div>
     <div class="meterTypeTabs waterGasTabs">
       <button type="button" class="${mode==='water'?'active':''}" onclick="meterSetType('water');render();meterFocusInput()">💧 Su</button>
       <button type="button" ${gasDisabled?'disabled':''} class="${mode==='gas'?'active':''}" onclick="meterSetType('gas');render();meterFocusInput()">🔥 Gaz</button>
