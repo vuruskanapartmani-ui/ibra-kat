@@ -1993,7 +1993,7 @@ function personLedgerEntries(unitId,personId){
   const rels=ledgerResponsibilityBounds(unitId,personId);
   const allowed=date=>!date||rels.some(r=>(!r.startDate||r.startDate<=date)&&(!r.endDate||r.endDate>=date));
   return {
-    charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId&&allowed(ledgerChargePeriodDate(c))),
+    charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId&&(c.splitBatchId||allowed(ledgerChargePeriodDate(c)))),
     payments:state.payments.filter(p=>p.unitId===unitId&&p.personId===personId&&allowed(p.date||null))
   };
 }
@@ -2234,8 +2234,9 @@ async function saveDebtSplit(){
   const button=$('#splitSave');if(button)button.disabled=true;
   try{
     const r=await commitSpreadsheetChange(()=>{
+      if(!state.responsibilities.some(x=>x.unitId===preview.unitId&&x.personId===preview.first)||!state.responsibilities.some(x=>x.unitId===preview.unitId&&x.personId===preview.second))throw Error('Kişi ilişkisi değişmiş.');
       const rows=splitPeriodCharges(preview.unitId,preview.periodId);
-      if(rows.length!==preview.results.length||rows.some((c,i)=>c.id!==preview.results[i].original.id)||rows.some(c=>c.splitBatchId||state.payments.some(p=>p.chargeId===c.id)))
+      if(rows.length!==preview.results.length||rows.some((c,i)=>c.id!==preview.results[i].original.id||splitMoneyToCents(c.amount)!==splitMoneyToCents(preview.results[i].original.amount))||rows.some(c=>c.splitBatchId||state.payments.some(p=>p.chargeId===c.id)))
         throw Error('Borçlar değişmiş veya ödemeye bağlanmış. Önizlemeyi yeniden oluşturun.');
       const batch=uid('split');
       const keep=state.charges.filter(c=>!(c.unitId===preview.unitId&&c.periodId===preview.periodId));
