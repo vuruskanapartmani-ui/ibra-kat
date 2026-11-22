@@ -453,10 +453,7 @@ function exportCurrentJson(){
 }
 function exportRecoveryJson(){
   let snapshot=localStorage.getItem(RECOVERY_KEY);
-  if(localStorage.getItem(PENDING_SYNC_KEY)){
-    const pending=JSON.parse(localStorage.getItem(PENDING_SYNC_KEY));
-    snapshot=pending?.payload?JSON.stringify(pending.payload):localStorage.getItem(STORE_KEY);
-  }
+  if(localStorage.getItem(PENDING_SYNC_KEY))snapshot=localStorage.getItem(STORE_KEY);
   if(!snapshot){notify('Korunan eski yerel kayıt bulunamadı.');return}
   downloadData(snapshot,'IBRAKAT-kurtarma-'+new Date().toISOString().slice(0,10)+'.json');
 }
@@ -887,7 +884,10 @@ async function cloudLoadState(){
     // A prior save may have reached the server even when its acknowledgement was lost.
     if(pending){
       let pendingState=null;
-      try{pendingState=pending.payload||JSON.parse(existingRaw||'null')}catch(e){}
+      try{pendingState=existingRaw?JSON.parse(existingRaw):null}catch(e){}
+      if(!pendingState&&pending.payload)pendingState=pending.payload;
+      // The current browser state may be newer than an old interrupted upload.
+      // Never replace it with an older pending payload.
       if(!pendingState||!Array.isArray(pendingState.units)){
         syncBlocked=true;cloudLoaded=false;
         setSyncStatus('Bekleyen kayıt okunamıyor — manuel kurtarma gerekli');
