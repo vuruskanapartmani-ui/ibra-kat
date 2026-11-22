@@ -384,7 +384,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.42';
+const APP_VERSION = 'V1.43';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -1956,11 +1956,12 @@ function openUnitCenter(unitId){
   const unitMails=unitNotificationEmails(u);
   openModal(`<div class="unitCenterHead"><div><h2>${u.label} · Daire Merkezi</h2><div class="small muted">${u.type==='apartment'?u.sqm+' m²':'Aidat katsayısı '+u.duesMultiplier} · tüm bilgiler tek ekranda</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="unitCenterCards" style="margin-top:10px"><div class="card kpi"><div class="klabel">Toplam Tahakkuk</div><div class="kval">${trMoney(f.total)}</div></div><div class="card kpi"><div class="klabel">Toplam Ödeme</div><div class="kval">${trMoney(f.paid)}</div></div><div class="card kpi"><div class="klabel">Bakiye</div><div class="kval ${f.balance>0?'danger':f.balance<0?'ok':''}">${trMoney(f.balance)}</div></div><div class="card kpi"><div class="klabel">Gecikme Faizi</div><div class="kval">${trMoney(f.late)}</div></div></div>
+  <div class="unitPanel"><div class="sectionHead"><h3>Kişiler / Hane</h3><span class="small muted">Bir dairede birden fazla kişi olabilir.</span></div>${personRows||'<div class="muted small">Kayıt yok.</div>'}</div>
   <div class="unitLateFeeBox"><div><b>Gecikme faizi yönetimi</b><div class="small muted">Bu daire için biriken faizi sıfırla veya seçili dönemi faizden muaf tut.</div></div><div class="actions"><button class="dangerBtn" onclick="openUnitLateFeeControl('${unitId}')">Faizi Yönet</button></div></div>
   <div class="actions" style="margin-top:10px"><button class="primary" onclick="closeModal();openPaymentForUnit('${unitId}')">+ Manuel Ödeme</button><button onclick="openLegacyDebtEntry('${unitId}')">+ Geçmiş Borç</button><button onclick="openHouseholdPersonForm('${unitId}')">+ Kişi Ekle</button><button onclick="openUnitNotificationEmails('${unitId}')">Daire E-postaları</button><button onclick="closeModal();openUnitLedger('${unitId}')">Detaylı Cari</button></div>
   <div class="notice" style="margin-top:10px"><b>Daire bildirim e-postaları:</b> ${unitMails.length?unitMails.map(esc).join(', '):'Henüz tanımlı değil'} · Kişilerin kendi e-postaları ayrıca kullanılır.</div>
   <div class="unitPanel"><h3>${isoMonthLabel(p.month)} Tüketimleri</h3><div class="grid3"><div class="card"><div class="small muted">Soğuk Su</div><b>${m.cold==null?'—':trNum(m.cold,3)+' m³'}</b></div><div class="card"><div class="small muted">Sıcak Su</div><b>${m.hot==null?'—':trNum(m.hot,3)+' m³'}</b></div><div class="card"><div class="small muted">Gaz</div><b>${p.boilerActive?(m.gas==null?'—':trNum(m.gas,3)+' m³'):'Kombi kapalı'}</b></div></div><div class="actions" style="margin-top:8px"><button onclick="openUnitHistory('${unitId}')">Tüm Tüketim Geçmişi</button><button onclick="closeModal();go('monthly')">Aylık Tablo</button></div></div>
-  <div class="unitPanel"><div class="sectionHead"><h3>Kişiler / Hane</h3><span class="small muted">Bir dairede birden fazla kişi olabilir.</span></div>${personRows||'<div class="muted small">Kayıt yok.</div>'}</div>
+  
   <div class="unitPanel"><div class="sectionHead"><h3>Borç / Tahakkuk Hareketleri</h3><span class="small muted">Son 25 kayıt</span></div>${chargeRows||'<div class="muted small">Borç kaydı yok.</div>'}</div>
   <div class="unitPanel"><div class="sectionHead"><h3>Ödemeler</h3><span class="small muted">Son 25 kayıt</span></div>${payRows||'<div class="muted small">Ödeme kaydı yok.</div>'}</div>
   <div class="unitPanel"><h3>Dönem Geçmişi</h3>${histPeriods||'<div class="muted small">Geçmiş dönem yok.</div>'}</div>
@@ -1971,10 +1972,110 @@ function openUnitCenter(unitId){
 function parseEmailLines(v){return [...new Set(String(v||'').split(/[\n,;]+/).map(x=>x.trim()).filter(x=>/^\S+@\S+\.\S+$/.test(x)))]}
 function openUnitNotificationEmails(unitId){const u=unit(unitId);openModal(`<h2>${u.label} · Bildirim E-postaları</h2><div class="notice">Daireye ait ortak bildirim adresleri. Yönetici, muhasebe veya aile ortak adresi gibi birden fazla adres ekleyebilirsin. Kişilerin özel adresleri bunun dışında ayrıca tutulur.</div><form class="stack" style="margin-top:10px" onsubmit="event.preventDefault();saveUnitNotificationEmails('${unitId}')"><label>E-posta adresleri<textarea id="unitEmails" rows="6" placeholder="adres1@...\nadres2@...">${esc(unitNotificationEmails(u).join('\n'))}</textarea></label><button class="primary">Kaydet</button></form>`)}
 function saveUnitNotificationEmails(unitId){const u=unit(unitId);u.notificationEmails=parseEmailLines($('#unitEmails').value);saveState();logAudit('Daire bildirim e-postaları güncellendi',`${u.label} · ${u.notificationEmails.length} adres`);closeModal();openUnitCenter(unitId);notify('Daire e-posta adresleri kaydedildi.')}
-function openPersonProfileEditor(unitId,personId){const p=person(personId);if(!p)return;const rel=state.responsibilities.find(r=>r.unitId===unitId&&r.personId===personId);openModal(`<h2>${esc(p.name)} · İletişim</h2><form class="stack" onsubmit="event.preventDefault();savePersonProfile('${unitId}','${personId}')"><label>Ad Soyad<input id="peName" value="${esc(p.name||'')}"></label><label>Telefon<input id="pePhone" inputmode="tel" value="${esc(p.phone||'')}"></label><label>E-posta adresleri<textarea id="peEmails" rows="5" placeholder="Bir satıra bir adres">${esc(personEmails(p).join('\n'))}</textarea></label>${rel?`<label class="switch"><input id="pePrimary" type="checkbox" ${rel.primaryResponsible?'checked':''}> Bu rol için birincil finansal sorumlu</label>`:''}<button class="primary">Kaydet</button></form>`)}
-function savePersonProfile(unitId,personId){const p=person(personId),rel=state.responsibilities.find(r=>r.unitId===unitId&&r.personId===personId);if(!p)return;p.name=$('#peName').value.trim()||p.name;p.phone=$('#pePhone').value.trim();p.emails=parseEmailLines($('#peEmails').value);p.email=p.emails[0]||'';if(rel&&$('#pePrimary')){if($('#pePrimary').checked){state.responsibilities.filter(r=>r.unitId===unitId&&r.role===rel.role).forEach(r=>r.primaryResponsible=false);rel.primaryResponsible=true}else rel.primaryResponsible=false}saveState();logAudit('Kişi iletişim bilgisi güncellendi',`${unit(unitId).label} · ${p.name}`);closeModal();openUnitCenter(unitId);notify('Kişi bilgileri kaydedildi.')}
-function openHouseholdPersonForm(unitId){openModal(`<h2>${unit(unitId).label} · Kişi Ekle</h2><div class="notice">Karı-koca, aile bireyi veya birden fazla malik/kiracı ayrı ayrı tanımlanabilir. <b>Hane üyesi</b> seçilen kişiye otomatik borç yazılmaz; finansal borç birincil malik/kiracıya yazılır.</div><form class="stack" style="margin-top:10px" onsubmit="event.preventDefault();saveHouseholdPerson('${unitId}')"><label>Ad Soyad<input id="hpName" required></label><label>İlişki<select id="hpRole"><option value="occupant">Hane üyesi / eş</option><option value="tenant">Kiracı / finansal sorumlu</option><option value="owner">Malik</option></select></label><label>Telefon<input id="hpPhone" inputmode="tel"></label><label>E-posta adresleri<textarea id="hpEmails" rows="4" placeholder="Bir satıra bir adres"></textarea></label><label>Başlangıç tarihi<input id="hpStart" type="date" value="${todayISO()}"></label><label class="switch"><input id="hpPrimary" type="checkbox"> Bu rol için birincil finansal sorumlu</label><label class="switch"><input id="hpLogin" type="checkbox"> Sisteme giriş yetkisi ver</label><button class="primary">Kişiyi Ekle</button></form>`)}
-function saveHouseholdPerson(unitId){const name=$('#hpName').value.trim(),role=$('#hpRole').value,start=$('#hpStart').value||todayISO();if(!name)return;const p={id:uid('person'),name,phone:$('#hpPhone').value.trim(),emails:parseEmailLines($('#hpEmails').value),email:'',kind:role};p.email=p.emails[0]||'';state.people.push(p);const primary=$('#hpPrimary').checked;if(primary)state.responsibilities.filter(r=>r.unitId===unitId&&r.role===role&&r.active).forEach(r=>r.primaryResponsible=false);state.responsibilities.push({id:uid('r'),unitId,personId:p.id,role,startDate:start,endDate:null,active:true,loginEnabled:$('#hpLogin').checked,primaryResponsible:primary,source:'manual_household'});saveState();logAudit('Daireye kişi eklendi',`${unit(unitId).label} · ${name} · ${accessRoleLabel(role)}`);closeModal();openUnitCenter(unitId);notify('Kişi daireye eklendi.')}
+function openPersonProfileEditor(unitId,personId){
+  const p=person(personId),rel=state.responsibilities.find(r=>r.unitId===unitId&&r.personId===personId);
+  if(!p||!rel)return notify('Bu daireye ait kişi ilişkisi bulunamadı.');
+  openModal('<h2>'+esc(p.name)+' · Kişi Kartı</h2>'
+    +'<div class="notice">Düzenlemeler yalnızca seçilen kişi ve daire ilişkisini etkiler. Geçmiş borçlar, ödemeler ve kişi kayıtları silinmez.</div>'
+    +'<form class="stack" onsubmit="event.preventDefault();savePersonProfile(\''+unitId+'\',\''+personId+'\')">'
+    +'<label>Ad Soyad<input id="peName" required value="'+esc(p.name||'')+'"></label>'
+    +'<label>Telefon<input id="pePhone" inputmode="tel" value="'+esc(p.phone||'')+'"></label>'
+    +'<label>E-posta adresleri<textarea id="peEmails" rows="3" placeholder="Bir satıra bir adres">'+esc(personEmails(p).join('\n'))+'</textarea></label>'
+    +'<label>İlişki türü<select id="peRole">'
+    +['owner','tenant','occupant','business'].map(role=>'<option value="'+role+'" '+(rel.role===role?'selected':'')+'>'+accessRoleLabel(role)+'</option>').join('')
+    +'</select></label>'
+    +'<div class="grid2"><label>Başlangıç tarihi<input id="peStart" type="date" value="'+esc(rel.startDate||'')+'"></label>'
+    +'<label>Bitiş / pasife alma tarihi<input id="peEnd" type="date" value="'+esc(rel.endDate||'')+'"></label></div>'
+    +'<label>Durum<select id="peStatus" onchange="personStatusFieldChanged()"><option value="active" '+(rel.active?'selected':'')+'>Aktif</option><option value="passive" '+(!rel.active?'selected':'')+'>Pasif / Eski</option></select></label>'
+    +'<label class="switch"><input id="pePrimary" type="checkbox" '+(rel.primaryResponsible?'checked':'')+'> Bu rol için birincil finansal sorumlu</label>'
+    +'<label class="switch"><input id="peLogin" type="checkbox" '+(rel.loginEnabled?'checked':'')+' '+(!rel.active?'disabled':'')+'> Sisteme giriş yetkisi açık</label>'
+    +'<div class="notice warn">Pasife almak geçmiş borç ve ödeme kayıtlarını silmez. Yeni dönemlerde sorumluluğun kime geçeceğini ayrıca kontrol edin.</div>'
+    +'<div class="actions"><button type="button" onclick="openUnitCenter(\''+unitId+'\')">Geri</button><button id="personSaveBtn" class="primary" type="submit">Değişiklikleri Kaydet</button></div></form><p id="personSaveMsg" class="small danger"></p>');
+}
+function personStatusFieldChanged(){
+  const passive=$('#peStatus')?.value==='passive';
+  const login=$('#peLogin'),primary=$('#pePrimary'),end=$('#peEnd');
+  if(login){if(passive)login.checked=false;login.disabled=passive}
+  if(primary){if(passive)primary.checked=false;primary.disabled=passive}
+  if(end&&passive&&!end.value)end.value=todayISO();
+  if(end&&!passive)end.value='';
+}
+async function savePersonProfile(unitId,personId){
+  const name=$('#peName')?.value.trim(),phone=$('#pePhone')?.value.trim()||'',
+    emails=parseEmailLines($('#peEmails')?.value||''),role=$('#peRole')?.value,
+    active=$('#peStatus')?.value==='active',
+    start=$('#peStart')?.value||'',
+    end=active?null:($('#peEnd')?.value||todayISO()),
+    primary=active&&!!$('#pePrimary')?.checked,
+    login=active&&!!$('#peLogin')?.checked,
+    button=$('#personSaveBtn'),msg=$('#personSaveMsg');
+  if(!name){if(msg)msg.textContent='Ad soyad boş olamaz.';return}
+  if(start&&end&&end<start){if(msg)msg.textContent='Bitiş tarihi başlangıç tarihinden önce olamaz.';return}
+  if(button)button.disabled=true;
+  try{
+    const result=await commitSpreadsheetChange(()=>{
+      const p=person(personId),r=state.responsibilities.find(x=>x.unitId===unitId&&x.personId===personId);
+      if(!p||!r)throw new Error('Kişi ilişkisi sunucu üzerinde bulunamadı.');
+      const before=stableSnapshot({p,r});
+      p.name=name;p.phone=phone;p.emails=emails;p.email=emails[0]||'';
+      if(primary)state.responsibilities.filter(x=>x.unitId===unitId&&x.role===role&&x.id!==r.id).forEach(x=>x.primaryResponsible=false);
+      r.role=role;r.active=active;r.startDate=start||null;r.endDate=end;
+      r.primaryResponsible=primary;r.loginEnabled=login;
+      if(!active)r.loginEnabled=false;
+      return {changed:before!==stableSnapshot({p,r}),name,active};
+    },'Kişi kartı güncellendi',r=>unit(unitId).label+' · '+r.name+' · '+(r.active?'Aktif':'Pasif'));
+    closeModal();render();openUnitCenter(unitId);
+    notify(result.changed?'Kişi değişiklikleri sunucuya kaydedilip doğrulandı.':'Değişiklik yok.');
+  }catch(e){
+    if(msg)msg.textContent='Kaydedilemedi: '+(e.message||e)+' · Yerel kopya korunur.';
+    notify('Kişi güncellemesi doğrulanamadı: '+(e.message||e));
+  }finally{if(button&&button.isConnected)button.disabled=false}
+}
+function openHouseholdPersonForm(unitId){
+  openModal('<h2>'+esc(unit(unitId)?.label||unitId)+' · Kişi Ekle</h2>'
+    +'<div class="notice">Mevcut kişileri tekrar eklemek yerine <b>Kişiler / Hane</b> bölümünden düzenleyin. Birden fazla malik veya kiracı tanımlanabilir.</div>'
+    +'<form class="stack" onsubmit="event.preventDefault();saveHouseholdPerson(\''+unitId+'\')">'
+    +'<label>Ad Soyad<input id="hpName" required></label>'
+    +'<label>İlişki<select id="hpRole"><option value="occupant">Hane üyesi / eş</option><option value="tenant">Kiracı / finansal sorumlu</option><option value="owner">Malik</option><option value="business">İşyeri</option></select></label>'
+    +'<label>Telefon<input id="hpPhone" inputmode="tel"></label>'
+    +'<label>E-posta adresleri<textarea id="hpEmails" rows="4" placeholder="Bir satıra bir adres"></textarea></label>'
+    +'<label>Başlangıç tarihi<input id="hpStart" type="date" value="'+todayISO()+'"></label>'
+    +'<label class="switch"><input id="hpPrimary" type="checkbox"> Bu rol için birincil finansal sorumlu</label>'
+    +'<label class="switch"><input id="hpLogin" type="checkbox"> Sisteme giriş yetkisi ver</label>'
+    +'<div class="actions"><button type="button" onclick="openUnitCenter(\''+unitId+'\')">Geri</button><button id="hpSaveBtn" class="primary" type="submit">Kişiyi Kaydet</button></div>'
+    +'<p id="hpSaveMsg" class="small danger"></p></form>');
+}
+async function saveHouseholdPerson(unitId){
+  const name=$('#hpName')?.value.trim(),role=$('#hpRole')?.value,start=$('#hpStart')?.value||todayISO(),
+    phone=$('#hpPhone')?.value.trim()||'',emails=parseEmailLines($('#hpEmails')?.value||''),
+    primary=!!$('#hpPrimary')?.checked,login=!!$('#hpLogin')?.checked,
+    button=$('#hpSaveBtn'),msg=$('#hpSaveMsg');
+  if(!name)return;
+  const normalized=normTR(name).replace(/\s+/g,' ').trim();
+  const existing=unitRelationships(unitId).find(x=>normTR(x.p.name).replace(/\s+/g,' ').trim()===normalized);
+  if(existing){
+    if(msg)msg.textContent='Bu isim bu dairede zaten kayıtlı. Yeni kayıt yerine mevcut kişiyi düzenleyin.';
+    notify('Mükerrer kayıt engellendi. Kişiler / Hane bölümündeki mevcut kişiyi düzenleyin.');
+    return;
+  }
+  if(button)button.disabled=true;
+  try{
+    const result=await commitSpreadsheetChange(()=>{
+      const duplicate=unitRelationships(unitId).find(x=>normTR(x.p.name).replace(/\s+/g,' ').trim()===normalized);
+      if(duplicate)throw new Error('Bu kişi daireye zaten bağlı. Mevcut kaydı düzenleyin.');
+      const p={id:uid('person'),name,phone,emails,email:emails[0]||'',kind:role};
+      state.people.push(p);
+      if(primary)state.responsibilities.filter(r=>r.unitId===unitId&&r.role===role&&r.active).forEach(r=>r.primaryResponsible=false);
+      state.responsibilities.push({id:uid('r'),unitId,personId:p.id,role,startDate:start,endDate:null,active:true,loginEnabled:login,primaryResponsible:primary,source:'manual_household'});
+      return {changed:true,name,personId:p.id};
+    },'Daireye kişi eklendi',r=>unit(unitId).label+' · '+r.name);
+    closeModal();render();openUnitCenter(unitId);
+    notify(result.name+' kaydı sunucuya kaydedildi ve doğrulandı.');
+  }catch(e){
+    if(msg)msg.textContent='Kişi kaydedilemedi: '+(e.message||e);
+    notify('Kişi ekleme doğrulanamadı: '+(e.message||e));
+  }finally{if(button&&button.isConnected)button.disabled=false}
+}
 function unitPersonFinancialCards(unitId){const rels=state.responsibilities.filter(r=>r.unitId===unitId),charges=state.charges.filter(c=>c.unitId===unitId),pays=state.payments.filter(p=>p.unitId===unitId);const persons=[...new Map(rels.map(r=>[r.personId,person(r.personId)])).values()].filter(Boolean);return persons.map(pp=>{const pc=charges.filter(c=>c.personId===pp.id).reduce((a,c)=>a+Number(c.amount||0),0),py=pays.filter(x=>x.personId===pp.id).reduce((a,x)=>a+Number(x.amount||0),0),roles=rels.filter(r=>r.personId===pp.id).map(r=>accessRoleLabel(r.role)).join(', ');return `<div class="listitem"><div class="sectionHead"><div><b>${esc(pp.name)}</b><div class="small muted">${esc(roles)}</div></div><b>${trMoney(pc-py)}</b></div><div class="small">Tahakkuk ${trMoney(pc)} · Ödeme ${trMoney(py)}</div></div>`}).join('')||'<div class="notice">Kişi bazlı hareket yok.</div>'}
 function ownerUnitLedgerPage(u){const p=period(),cs=state.charges.filter(c=>c.periodId===p.id&&c.unitId===u.id),pays=state.payments.filter(x=>x.periodId===p.id&&x.unitId===u.id),total=cs.reduce((a,c)=>a+c.amount,0),paid=pays.reduce((a,x)=>a+x.amount,0),active=activePeopleForUnit(u.id,p.dueDate||todayISO());return shell(`<div class="card"><h2>${u.label} · Daire Cari</h2><div class="notice"><b>Malik görünümü:</b> Daireye ait tüketim, tahakkuk, ödeme ve kiracıya yazılmış daire borçlarını görebilirsin. Diğer dairelere erişemezsin.</div><div class="grid3" style="margin-top:10px"><div class="card kpi"><div class="klabel">Tahakkuk</div><div class="kval">${trMoney(total)}</div></div><div class="card kpi"><div class="klabel">Ödeme</div><div class="kval">${trMoney(paid)}</div></div><div class="card kpi"><div class="klabel">Kalan</div><div class="kval">${trMoney(total-paid)}</div></div></div></div><div class="card" style="margin-top:10px"><h3>Aktif Kişiler</h3>${active.map(x=>`<div class="row"><span>${esc(x.p.name)}</span><b>${accessRoleLabel(x.r.role)}</b></div>`).join('')||'<div class="muted">Aktif kişi yok.</div>'}</div><div class="card" style="margin-top:10px"><h3>Kişi Bazında Cari</h3>${unitPersonFinancialCards(u.id)}</div>`,[{id:'home',ico:'⌂',label:'Hesabım'},{id:'myUnitLedger',ico:'▤',label:'Daire Cari'},{id:'myConsumption',ico:'📟',label:'Tüketim'},{id:'myPayments',ico:'₺',label:'Ödemeler'},{id:'myProfile',ico:'⚙',label:'Profil'}])}
 let residentApprovalCache=[];
@@ -2050,7 +2151,7 @@ async function rejectResidentApplication(id){
 function managerResidents(){
   const all=state.responsibilities.map(r=>({r,p:person(r.personId),u:unit(r.unitId)})).filter(x=>x.p&&x.u);
   const active=all.filter(x=>x.r.active).length,old=all.length-active,owners=all.filter(x=>x.r.role==='owner').length,tenants=all.filter(x=>x.r.role==='tenant').length;
-  const rows=all.sort((a,b)=>state.units.indexOf(a.u)-state.units.indexOf(b.u)||(b.r.active-a.r.active)||a.p.name.localeCompare(b.p.name,'tr')).map((x,i)=>`<tr data-res-row data-active="${x.r.active?'1':'0'}" data-role="${x.r.role}" data-search="${esc(normTR(x.u.label+' '+x.p.name+' '+relRoleLabel(x.r.role)))}"><td><b>${x.u.label}</b></td><td>${esc(x.p.name)}</td><td>${relRoleLabel(x.r.role)}</td><td><span class="pill ${x.r.active?'ok':''}">${x.r.active?'AKTİF':'ESKİ / PASİF'}</span></td><td>${x.r.loginEnabled?'Açık':'Kapalı'}</td><td><button onclick="openUnit('${x.u.id}')">Daireyi Aç</button></td></tr>`).join('');
+  const rows=all.sort((a,b)=>state.units.indexOf(a.u)-state.units.indexOf(b.u)||(b.r.active-a.r.active)||a.p.name.localeCompare(b.p.name,'tr')).map((x,i)=>`<tr data-res-row data-active="${x.r.active?'1':'0'}" data-role="${x.r.role}" data-search="${esc(normTR(x.u.label+' '+x.p.name+' '+relRoleLabel(x.r.role)))}"><td><b>${x.u.label}</b></td><td>${esc(x.p.name)}</td><td>${relRoleLabel(x.r.role)}</td><td><span class="pill ${x.r.active?'ok':''}">${x.r.active?'AKTİF':'ESKİ / PASİF'}</span></td><td>${x.r.loginEnabled?'Açık':'Kapalı'}</td><td><button onclick="openPersonProfileEditor('${x.u.id}','${x.p.id}')">Kişiyi Düzenle</button> <button onclick="openUnit('${x.u.id}')">Daireyi Aç</button></td></tr>`).join('');
   const c=`<div class="sectionHead"><div><h2>Sakinler / Geçmiş Kişiler</h2><div class="muted small">Aktif olmayan eski kiracılar ve eski malik kayıtları silinmez; geçmişte görünmeye devam eder.</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="grid4" style="margin-top:10px"><div class="card kpi"><div class="klabel">Aktif ilişki</div><div class="kval">${active}</div></div><div class="card kpi"><div class="klabel">Eski / pasif</div><div class="kval">${old}</div></div><div class="card kpi"><div class="klabel">Malik kayıtları</div><div class="kval">${owners}</div></div><div class="card kpi"><div class="klabel">Kiracı kayıtları</div><div class="kval">${tenants}</div></div></div>
   <div class="card" style="margin-top:10px"><div class="grid3"><label>Ara<input id="residentSearch" placeholder="Ad, daire, rol" oninput="filterResidents()"></label><label>Durum<select id="residentStatus" onchange="filterResidents()"><option value="all">Tümü</option><option value="active">Sadece aktif</option><option value="old">Sadece eski/pasif</option></select></label><label>Rol<select id="residentRole" onchange="filterResidents()"><option value="all">Tümü</option><option value="owner">Ev Sahibi</option><option value="tenant">Kiracı</option><option value="business">İşyeri</option></select></label></div></div>
@@ -4570,7 +4671,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
