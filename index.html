@@ -253,6 +253,61 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 @media(max-width:900px){.br-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.br-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.br-toolbar{flex-direction:column;align-items:flex-start}.br-buttons{justify-content:flex-start}}
 @media(max-width:520px){.br-filters{grid-template-columns:1fr}.br-table{min-width:930px}.br-kpis .card b{font-size:18px}}
 
+
+/* V1.30 responsive full-workspace: PDF reconciliation, monthly debt/usage and all admin tables */
+@media screen and (min-width: 761px) {
+  body:has(#app):not(:has(.access-page)) .app {
+    width: 100%;
+    max-width: none !important;
+    margin: 0 auto;
+    padding-left: clamp(12px,1.35vw,26px);
+    padding-right: clamp(12px,1.35vw,26px);
+  }
+  .modalBack {padding:clamp(8px,1.1vw,20px);place-items:center}
+  .modal {
+    width: min(98vw, 2200px);
+    max-width: min(98vw,2200px);
+    max-height: calc(100dvh - 20px);
+    border-radius: 12px;
+    padding: clamp(12px,1.2vw,24px);
+  }
+  .modal:has([data-review]) {width: min(99vw,2400px);max-width:min(99vw,2400px)}
+  .modal:has([data-review]) .tableWrap {width:100%;max-width:100%;overflow:visible}
+  .modal:has([data-review]) table {width:100%;min-width:0;table-layout:fixed;font-size:clamp(10px,.84vw,13px)}
+  .modal:has([data-review]) th,.modal:has([data-review]) td {min-width:0;padding:4px 3px;white-space:normal;overflow-wrap:anywhere}
+  .modal:has([data-review]) td input {width:100%;min-width:0!important;max-width:100%;min-height:32px;padding:4px 3px;margin:0;font-size:clamp(10px,.83vw,13px);border-radius:5px;text-align:right;font-variant-numeric:tabular-nums}
+  .modal:has([data-review]) td:first-child input {text-align:left}
+  .monthlyPaymentReport,.unitMonthlyReport {width:100%;max-width:100%;min-width:0}
+  .monthlyPaymentReport .tableWrap,.unitMonthlyReport .tableWrap {width:100%;overflow:visible}
+  .monthlyPaymentReport table,.unitMonthlyReport table {
+    width:100%!important;min-width:0!important;table-layout:fixed;
+    font-size:clamp(10px,.75vw,12px);font-variant-numeric:tabular-nums;
+  }
+  .monthlyPaymentReport th,.monthlyPaymentReport td,.unitMonthlyReport th,.unitMonthlyReport td {
+    min-width:0;white-space:normal;overflow-wrap:anywhere;
+    padding:6px 3px;line-height:1.24;
+  }
+  .monthlyPaymentReport .unitMonthlyReport th,.monthlyPaymentReport .unitMonthlyReport td {padding:5px 2px}
+  .monthlyPaymentReport table tbody tr:nth-child(even),.unitMonthlyReport table tbody tr:nth-child(even){background:#f5f8fc}
+  .monthlyPaymentReport table tbody tr:hover,.unitMonthlyReport table tbody tr:hover{background:#eaf3ff}
+  .unitSummaryTable{min-width:0!important}
+  .app .tableWrap{max-width:100%}
+}
+@media screen and (min-width: 761px) and (max-width: 1299px) {
+  .monthlyPaymentReport table,.unitMonthlyReport table{font-size:10px}
+  .monthlyPaymentReport th,.monthlyPaymentReport td,.unitMonthlyReport th,.unitMonthlyReport td{padding:5px 2px}
+  .modal:has([data-review]) td input {font-size:11px}
+}
+@media screen and (max-width: 760px) {
+  .app {max-width:none;width:100%;padding-left:8px;padding-right:8px}
+  .modalBack{padding:4px;place-items:stretch center}
+  .modal{width:100%;max-width:100%;max-height:calc(100dvh - 8px);border-radius:10px;padding:9px}
+  .modal:has([data-review]) .tableWrap,.unitMonthlyReport .tableWrap,.monthlyPaymentReport .tableWrap{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+  .modal:has([data-review]) table{min-width:870px;font-size:11px}
+  .modal:has([data-review]) td input{min-width:68px!important;width:100%;padding:4px;font-size:12px}
+  .monthlyPaymentReport table,.unitMonthlyReport table{font-size:11px}
+}
+
 </style>
   <title>IBRA KAT</title>
 </head>
@@ -273,7 +328,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.29';
+const APP_VERSION = 'V1.30';
 const APP_VERSION_DATE = '22.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
