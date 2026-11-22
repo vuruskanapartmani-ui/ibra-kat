@@ -453,7 +453,10 @@ function exportCurrentJson(){
 }
 function exportRecoveryJson(){
   let snapshot=localStorage.getItem(RECOVERY_KEY);
-  if(localStorage.getItem(PENDING_SYNC_KEY))snapshot=localStorage.getItem(STORE_KEY);
+  if(localStorage.getItem(PENDING_SYNC_KEY)){
+    const pending=JSON.parse(localStorage.getItem(PENDING_SYNC_KEY));
+    snapshot=pending?.payload?JSON.stringify(pending.payload):localStorage.getItem(STORE_KEY);
+  }
   if(!snapshot){notify('Korunan eski yerel kayıt bulunamadı.');return}
   downloadData(snapshot,'IBRAKAT-kurtarma-'+new Date().toISOString().slice(0,10)+'.json');
 }
@@ -602,7 +605,7 @@ function openRecoverySync(){
   openModal('<h2>Yerel Çalışmaları Kurtar</h2><div class="notice warn">Yerel ve sunucu verileri farklı olabilir. Otomatik birleştirme yapılmaz. Aktarım bütün ana veriyi değiştirir.</div>'
     +'<p class="small"><b>Yerel:</b> '+esc(syncCount(old))+'</p>'
     +'<p class="small"><b>Sunucu:</b> '+esc(syncCount(remote))+'</p>'
-    +'<div class="actions"><button onclick="exportRecoveryJson()">Yerel JSON İndir</button><button onclick="exportPendingRemoteJson()">Sunucu JSON İndir</button></div>'
+    +'<div class="actions"><button onclick="exportRecoveryJson()">Yerel JSON İndir</button><button onclick="'+(remotePendingState?'exportPendingRemoteJson()':'exportCurrentJson()')+'">Sunucu JSON İndir</button></div>'
     +'<div class="notice danger" style="margin-top:10px">Önce iki JSON dosyasını karşılaştırın. Onaylanan aktarım tüm sunucu verisinin yerini alır.</div>'
     +'<div class="actions" style="margin-top:12px"><button onclick="closeModal()">Vazgeç</button><button class="dangerBtn" onclick="uploadRecoveredLocal()">Yerel Kopyayı Sunucuya Aktar</button></div>');
 }
