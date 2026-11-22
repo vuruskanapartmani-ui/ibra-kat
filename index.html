@@ -2630,23 +2630,47 @@ function handleBankFile(ev,options){
     const r=importBankWorkbook(wb,file.name,options);render();openModal(`<h2>${esc(r.bp.name)} Yüklendi</h2><p><b>${esc(file.name)}</b></p><div class="grid3"><div class="card kpi"><div class="klabel">Yeni hareket</div><div class="kval">${r.added}</div></div><div class="card kpi"><div class="klabel">Mükerrer atlandı</div><div class="kval">${r.skipped}</div></div><div class="card kpi"><div class="klabel">Daire önerisi</div><div class="kval">${r.autoHints}</div></div></div>${r.balanceUpdated?`<div class="notice" style="margin-top:10px"><b>Hesap bakiyesi güncellendi:</b> ${trMoney2(r.lastBalance)} · ${r.lastBalanceDate||''}</div>`:''}<div class="notice" style="margin-top:10px">Daire numarası açıkça yazan veya aktif kişi adı birebir eşleşen gelen ödemeler otomatik olarak cari hesaba işlenir. Belirsiz eşleşmeler yönetici kontrolüne bırakılır.</div><button class="primary full" style="margin-top:12px" onclick="closeModal()">Tamam</button>`)}catch(err){notify('Excel okunamadı: '+(err.message||err))}};reader.readAsArrayBuffer(file);
 }
 function paymentPersonOptions(unitId){
-  const rels=state.responsibilities.filter(r=>r.unitId===unitId); const seen=new Set();
-  return rels.map(r=>person(r.personId)).filter(p=>p&&!seen.has(p.id)&&seen.add(p.id)).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  const rels=state.responsibilities.filter(r=>r.unitId===unitId).sort((a,b)=>Number(b.active)-Number(a.active));const seen=new Set();
+  return '<option value="">Ödemeyi yapan kişiyi seçin</option>'+rels.map(r=>({r,p:person(r.personId)})).filter(x=>x.p&&!seen.has(x.p.id)&&seen.add(x.p.id)).map(x=>`<option value="${x.p.id}">${esc(x.p.name)} · ${x.r.active?'Aktif':'Eski'}</option>`).join('');
 }
 function refreshPaymentPeople(){const u=$('#payUnit')?.value,sel=$('#payPerson');if(!u||!sel)return;sel.innerHTML=paymentPersonOptions(u)||'<option value="">Kişi seçilmedi</option>';refreshPaymentTarget()}
-function refreshPaymentTarget(){const u=$('#payUnit')?.value,pid=$('#payPerson')?.value,sel=$('#payCharge');if(!sel)return;const rows=openChargesForUnit(u).filter(c=>!pid||c.personId===pid);sel.innerHTML='<option value="">En eski açık borçlardan otomatik düş</option>'+rows.map(c=>`<option value="${c.id}">${c.dueDate||'—'} · ${esc(c.label||c.type)} · kalan ${trMoney(c.remaining)}</option>`).join('')+'<option value="general">Genel ödeme / avans</option>'}
+function refreshPaymentTarget(){const u=$('#payUnit')?.value,pid=$('#payPerson')?.value,sel=$('#payCharge');if(!sel)return;const rows=pid?openChargesForUnit(u).filter(c=>chargeAccountPersonId(c)===pid):[];sel.innerHTML='<option value="">En eski açık borçlardan otomatik düş</option>'+rows.map(c=>`<option value="${c.id}">${c.dueDate||'—'} · ${esc(c.label||c.type)} · kalan ${trMoney(c.remaining)}</option>`).join('')+'<option value="general">Genel ödeme / avans</option>'}
 function openPayment(){const first=state.units[0];openModal(`<h2>Manuel Tahsilat</h2><div class="notice">Banka dışında elden/nakit ödeme veya sonradan eklemek istediğin tahsilatı kişi bazında kaydedebilirsin.</div><form class="stack" style="margin-top:10px" onsubmit="event.preventDefault();savePayment()"><label>Daire / Dükkan<select id="payUnit" onchange="refreshPaymentPeople()">${state.units.map(u=>`<option value="${u.id}">${u.label}</option>`).join('')}</select></label><label>Ödemeyi yapan / adına işlenecek kişi<select id="payPerson" onchange="refreshPaymentTarget()">${paymentPersonOptions(first.id)}</select></label><label>Tutar<input id="payAmount" type="number" step="0.01" min="0.01" required></label><label>Ödeme tarihi<input id="payDate" type="date" value="${todayISO()}" required></label><label>Kanal<select id="payBank"><option value="cash">Nakit / Diğer</option><option value="isbank">İş Bankası · …655680</option><option value="ziraat">Ziraat Bankası · …5002</option></select></label><label>Hangi borca?<select id="payCharge"><option value="">En eski açık borçlardan otomatik düş</option></select></label><label>Açıklama<input id="payDesc" placeholder="Örn. elden aidat ödemesi"></label><button class="primary">Ödemeyi Kaydet</button></form>`);setTimeout(refreshPaymentTarget,0)}
-function savePayment(){
-  const u=$('#payUnit').value,pid=$('#payPerson').value||null,amount=Number($('#payAmount').value),date=$('#payDate').value,bankId=$('#payBank').value,bp=BANK_PROFILES[bankId],target=$('#payCharge').value,desc=$('#payDesc').value||'Manuel tahsilat';
-  if(!amount||amount<=0){notify('Geçerli bir tutar gir.');return}
-  let remain=amount;
-  if(target&&target!=='general'){
-    const c=state.charges.find(x=>x.id===target);if(c){const a=Math.min(remain,Math.max(0,Number(c.amount||0)-chargePaidAmount(c.id)));state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:pid||c.personId,amount:a,date,description:desc,bankId,bankName:bp?.name||'Nakit / Diğer',bankAccount:bp?.short||'',chargeId:c.id,manualEntry:true});remain-=a}
-  }else if(target!=='general'){
-    const opens=openChargesForUnit(u).filter(c=>!pid||c.personId===pid);for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:pid||c.personId,amount:a,date,description:desc,bankId,bankName:bp?.name||'Nakit / Diğer',bankAccount:bp?.short||'',chargeId:c.id,manualEntry:true});remain-=a}
-  }
-  if(remain>0.005)state.payments.push({id:uid('pay'),periodId:periodIdForDate(date)||activePeriodId,unitId:u,personId:pid,amount:remain,date,description:desc,bankId,bankName:bp?.name||'Nakit / Diğer',bankAccount:bp?.short||'',chargeId:null,manualEntry:true});
-  saveState();syncLateFees(true);logAudit('Manuel tahsilat girildi',`${unit(u).label} · ${person(pid)?.name||'Kişi seçilmedi'} · ${trMoney(amount)}`);closeModal();render();notify('Ödeme cari hesaba işlendi.');
+async function savePayment(){
+  const u=$('#payUnit')?.value,pid=$('#payPerson')?.value||null,amount=Number($('#payAmount')?.value),
+    date=$('#payDate')?.value,bankId=$('#payBank')?.value,bp=BANK_PROFILES[bankId],
+    target=$('#payCharge')?.value,desc=$('#payDesc')?.value||'Manuel tahsilat';
+  if(!pid||!person(pid))return notify('Ödemenin ait olduğu kişiyi seçmelisiniz.');
+  if(!amount||amount<=0||!date)return notify('Tutar ve ödeme tarihi zorunlu.');
+  const rel=state.responsibilities.find(r=>r.unitId===u&&r.personId===pid&&(!r.startDate||r.startDate<=date)&&(!r.endDate||date<=r.endDate));
+  if(!rel)return notify('Ödeme tarihi seçilen kişinin sorumluluk tarihleri dışında.');
+  const button=document.querySelector('#modalBack form button.primary');if(button)button.disabled=true;
+  try{
+    const res=await commitSpreadsheetChange(()=>{
+      let remain=amount,added=0;
+      const selected=target&&target!=='general'?state.charges.find(c=>c.id===target):null;
+      if(selected&&(selected.unitId!==u||chargeAccountPersonId(selected)!==pid))
+        throw new Error('Seçilen borç başka kişiye ait. Ödeme devri engellendi.');
+      const candidates=selected?[selected]:target==='general'?[]:openChargesForUnit(u).filter(c=>chargeAccountPersonId(c)===pid);
+      for(const charge of candidates){
+        if(remain<=0.005)break;
+        const due=Math.max(0,Number(charge.amount||0)-chargePaidAmount(charge.id));
+        const paid=Math.min(remain,due);
+        if(paid<=0.005)continue;
+        state.payments.push({id:uid('pay'),periodId:charge.periodId,unitId:u,personId:pid,amount:paid,date,description:desc,
+          bankId,bankName:bp?.name||'Nakit / Diğer',bankAccount:bp?.short||'',chargeId:charge.id,manualEntry:true});
+        remain-=paid;added++;
+      }
+      if(remain>0.005){
+        state.payments.push({id:uid('pay'),periodId:periodIdForDate(date)||activePeriodId,unitId:u,personId:pid,
+          amount:remain,date,description:desc,bankId,bankName:bp?.name||'Nakit / Diğer',bankAccount:bp?.short||'',chargeId:null,manualEntry:true});
+        added++;
+      }
+      return {changed:added>0,added};
+    },'Manuel tahsilat girildi',x=>unit(u).label+' · '+person(pid).name+' · '+trMoney(amount));
+    closeModal();render();notify(trMoney(amount)+' tahsilat kişi carisine işlendi ve sunucuda doğrulandı.');
+  }catch(e){notify('Ödeme kaydedilemedi: '+e.message)}
+  finally{if(button&&button.isConnected)button.disabled=false}
 }
 function chargePaidAmount(chargeId,excludeTxId=null){return state.payments.filter(p=>p.chargeId===chargeId&&(!excludeTxId||p.bankTransactionId!==excludeTxId)).reduce((a,p)=>a+Number(p.amount||0),0)}
 function openChargesForUnit(unitId,excludeTxId=null){return state.charges.filter(c=>c.unitId===unitId).map(c=>({...c,remaining:Math.max(0,Number(c.amount||0)-chargePaidAmount(c.id,excludeTxId))})).filter(c=>c.remaining>0.005).sort((a,b)=>((a.dueDate||period(a.periodId)?.month||'').localeCompare(b.dueDate||period(b.periodId)?.month||'')))}
@@ -2659,8 +2683,8 @@ function openBankAllocation(txId){
 function addAllocationRow(unitId='',chargeId='',amount=''){const id=`al_${++allocSeq}`,wrap=$('#allocRows'),opts=state.units.map(u=>`<option value="${u.id}" ${u.id===unitId?'selected':''}>${u.label} · ${esc(occupantOf(u.id)?.name || '')}</option>`).join('');wrap.insertAdjacentHTML('beforeend',`<div class="card" id="${id}"><div class="grid3"><label>Daire / Dükkan<select class="alUnit" onchange="refreshAllocationCharges('${id}')">${opts}</select></label><label>Borç kalemi<select class="alCharge"></select></label><label>Tutar<input class="alAmount" type="number" step="0.01" value="${amount||''}" oninput="updateAllocationTotal()"></label></div><button class="dangerBtn" style="margin-top:8px" onclick="document.getElementById('${id}').remove();updateAllocationTotal()">Satırı Sil</button></div>`);refreshAllocationCharges(id,chargeId)}
 function refreshAllocationCharges(rowId,selected=''){const box=document.getElementById(rowId),u=box.querySelector('.alUnit').value,sel=box.querySelector('.alCharge'),open=openChargesForUnit(u,allocTxId);sel.innerHTML=`<option value="">Genel ödeme / avans</option>`+open.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${isoMonthLabel(period(c.periodId)?.month||activePeriodId)} · ${esc(c.label||c.type)} · kalan ${trMoney(c.remaining)}</option>`).join('')}
 function updateAllocationTotal(){const tx=state.bankTransactions.find(x=>x.id===allocTxId),sum=$$('#allocRows .alAmount').reduce((a,i)=>a+Number(i.value||0),0),el=$('#allocTotal');if(el&&tx)el.innerHTML=`Dağıtılan <b>${trMoney(sum)}</b> · Banka hareketi <b>${trMoney(tx.amount)}</b> · Kalan <b>${trMoney(Math.max(0,Number(tx.amount)-sum))}</b>`}
-function saveBankAllocation(){const tx=state.bankTransactions.find(x=>x.id===allocTxId);if(!tx)return;const rows=$$('#allocRows .card').map(box=>({unitId:box.querySelector('.alUnit').value,chargeId:box.querySelector('.alCharge').value,amount:Number(box.querySelector('.alAmount').value||0)})).filter(x=>x.amount>0);const sum=rows.reduce((a,x)=>a+x.amount,0);if(sum-Number(tx.amount)>0.005){notify('Dağıtım toplamı banka hareketinden büyük olamaz.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);const bp=bankProfile(tx.bankId);rows.forEach(r=>{const c=state.charges.find(x=>x.id===r.chargeId),pid=c?.personId||matchedPersonForTx(tx)||occupantOf(r.unitId,tx.date)?.id||ownerOf(r.unitId)?.id;state.payments.push({id:uid('pay'),periodId:c?.periodId||tx.periodId||activePeriodId,unitId:r.unitId,personId:pid,amount:r.amount,date:tx.date,description:`${bp.name} banka ödemesi · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:r.chargeId||null,reference:tx.reference})});tx.allocatedAmount=sum;saveState();logAudit('Banka ödemesi dağıtıldı',`${bp.name} · ${trMoney(sum)}`);closeModal();render();notify('Banka ödemesi dağıtıldı.')}
-function autoAllocateBankTransaction(txId){const tx=state.bankTransactions.find(x=>x.id===txId),u=tx?.suggestedUnitIds?.length===1?tx.suggestedUnitIds[0]:null;if(!tx||!u||Number(tx.amount)<=0){notify('Tek bir daire önerisi yok.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);let remain=Number(tx.amount),bp=bankProfile(tx.bankId),opens=openChargesForUnit(u,tx.id);for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:c.personId||matchedPersonForTx(tx)||occupantOf(u,tx.date)?.id||ownerOf(u)?.id,amount:a,date:tx.date,description:`${bp.name} otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matchedPersonForTx(tx)||occupantOf(u,tx.date)?.id||ownerOf(u)?.id,amount:remain,date:tx.date,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});tx.allocatedAmount=Number(tx.amount);saveState();logAudit('Banka ödemesi otomatik eşleşti',`${unit(u).label} · ${trMoney(tx.amount)}`);render();notify(`${unit(u).label} için ödeme işlendi.`)}
+function saveBankAllocation(){const tx=state.bankTransactions.find(x=>x.id===allocTxId);if(!tx)return;const rows=$$('#allocRows .card').map(box=>({unitId:box.querySelector('.alUnit').value,chargeId:box.querySelector('.alCharge').value,amount:Number(box.querySelector('.alAmount').value||0)})).filter(x=>x.amount>0);const sum=rows.reduce((a,x)=>a+x.amount,0);if(sum-Number(tx.amount)>0.005){notify('Dağıtım toplamı banka hareketinden büyük olamaz.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);const bp=bankProfile(tx.bankId);rows.forEach(r=>{const c=state.charges.find(x=>x.id===r.chargeId),pid=c?.personId||matchedPersonForTx(tx)||null;state.payments.push({id:uid('pay'),periodId:c?.periodId||tx.periodId||activePeriodId,unitId:r.unitId,personId:pid,amount:r.amount,date:tx.date,description:`${bp.name} banka ödemesi · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:r.chargeId||null,reference:tx.reference})});tx.allocatedAmount=sum;saveState();logAudit('Banka ödemesi dağıtıldı',`${bp.name} · ${trMoney(sum)}`);closeModal();render();notify('Banka ödemesi dağıtıldı.')}
+function autoAllocateBankTransaction(txId){const tx=state.bankTransactions.find(x=>x.id===txId),u=tx?.suggestedUnitIds?.length===1?tx.suggestedUnitIds[0]:null;if(!tx||!u||Number(tx.amount)<=0){notify('Tek bir daire önerisi yok.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);let remain=Number(tx.amount),bp=bankProfile(tx.bankId),matched=matchedPersonForTx(tx),opens=matched?openChargesForUnit(u,tx.id).filter(c=>chargeAccountPersonId(c)===matched):[];for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:matched,amount:a,date:tx.date,description:`${bp.name} otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matched,amount:remain,date:tx.date,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});tx.allocatedAmount=Number(tx.amount);saveState();logAudit('Banka ödemesi otomatik eşleşti',`${unit(u).label} · ${trMoney(tx.amount)}`);render();notify(`${unit(u).label} için ödeme işlendi.`)}
 
 
 function managerAccounts(){
@@ -2696,7 +2720,7 @@ function openUnitLedger(unitId){
     +ledgerRowsHTML(unitId,charges,pays)
     +'<div class="actions" style="margin-top:12px"><button onclick="openUnitCenter(\''+unitId+'\')">← Daire Merkezine Dön</button><button onclick="window.print()">Yazdır / PDF</button></div>');
 }
-function openPaymentForUnit(unitId){openPayment();setTimeout(()=>{const e=$('#payUnit');if(e)e.value=unitId},0)}
+function openPaymentForUnit(unitId){openPayment();setTimeout(()=>{const e=$('#payUnit');if(e){e.value=unitId;refreshPaymentPeople()}},0)}
 
 function emailPersonLedger(unitId,personId){
   const u=unit(unitId),pp=person(personId);
@@ -4369,7 +4393,7 @@ function calculatePeriod(periodId){
   // Always refresh system-generated lines, preserving special assessments.
   state.charges=state.charges.filter(c=>!(c.periodId===p.id&&['dues','cold_water','hot_water','gas','electric','late_fee'].includes(c.type)));
   // Dues for all active units. The selected manager apartment is exempt only from the fixed dues for this period.
-  state.units.filter(u=>u.active).forEach(u=>{const managerExempt=!!p.managerDuesExemptUnitId&&u.id===p.managerDuesExemptUnitId;const raw=managerExempt?0:p.dues*u.duesMultiplier;state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:responsiblePersonForDate(u.id,p.dueDate||p.month+'-15')?.id||ownerOf(u.id,p.dueDate||p.month+'-15')?.id,type:'dues',label:managerExempt?'Sabit Aidat (Yönetici Muaf)':'Sabit Aidat',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate,managerExempt});});
+  state.units.filter(u=>u.active).forEach(u=>{const managerExempt=!!p.managerDuesExemptUnitId&&u.id===p.managerDuesExemptUnitId;const raw=managerExempt?0:p.dues*u.duesMultiplier;state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:chargeAccountPersonId({unitId:u.id,periodId:p.id,personId:null}),type:'dues',label:managerExempt?'Sabit Aidat (Yönetici Muaf)':'Sabit Aidat',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate,managerExempt});});
   if(waterInv){
     const coldTotal=apartments.reduce((a,u)=>a+(state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='cold')?.consumption||0),0);
     const hotTotal=apartments.reduce((a,u)=>a+(state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='hot')?.consumption||0),0);
@@ -4382,16 +4406,16 @@ function calculatePeriod(periodId){
       const cold=state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='cold')?.consumption||0; const hot=state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='hot')?.consumption||0; const total=cold+hot;
       const linkedShare=measured>0?(total/measured)*linked:0; const commonShare=(u.sqm/TOTAL_APT_SQM)*common; const wasteShare=(u.sqm/TOTAL_APT_SQM)*wasteTotal;
       const coldRaw=(cold+linkedShare+commonShare)*waterUnit+wasteShare; const hotRaw=hot*(waterUnit+hotGasUnit);
-      const pid=occupantOf(u.id,p.month+'-15')?.id||ownerOf(u.id)?.id;
+      const pid=chargeAccountPersonId({unitId:u.id,periodId:p.id,personId:null});
       state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:pid,type:'cold_water',label:'Soğuk Su',rawAmount:coldRaw,amount:roundTL(coldRaw),dueDate:p.dueDate});
       state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:pid,type:'hot_water',label:'Sıcak Su',rawAmount:hotRaw,amount:roundTL(hotRaw),dueDate:p.dueDate});
     });
     if(gasInv){
       const pool70=gasInv.amount*(p.gasConsumptionPct/100)-v40, pool30=gasInv.amount*(p.gasSqmPct/100); const gasTotal=apartments.reduce((a,u)=>a+(state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='gas')?.consumption||0),0);
-      apartments.forEach(u=>{const gc=state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='gas')?.consumption||0; const consumptionShare=p.boilerActive?(gasTotal>0?pool70*(gc/gasTotal):0):pool70/apartments.length; const sqmShare=pool30*(u.sqm/TOTAL_APT_SQM); const raw=consumptionShare+sqmShare;state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:responsiblePersonForDate(u.id,p.dueDate||p.month+'-15')?.id||ownerOf(u.id,p.dueDate||p.month+'-15')?.id,type:'gas',label:'Doğalgaz',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate});});
+      apartments.forEach(u=>{const gc=state.meterReadings.find(r=>r.periodId===p.id&&r.unitId===u.id&&r.type==='gas')?.consumption||0; const consumptionShare=p.boilerActive?(gasTotal>0?pool70*(gc/gasTotal):0):pool70/apartments.length; const sqmShare=pool30*(u.sqm/TOTAL_APT_SQM); const raw=consumptionShare+sqmShare;state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:chargeAccountPersonId({unitId:u.id,periodId:p.id,personId:null}),type:'gas',label:'Doğalgaz',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate});});
     }
-    if(electricTotal){const raw=electricTotal/apartments.length;apartments.forEach(u=>state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:responsiblePersonForDate(u.id,p.dueDate||p.month+'-15')?.id||ownerOf(u.id,p.dueDate||p.month+'-15')?.id,type:'electric',label:'Elektrik',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate}));}
-  } else if(electricTotal){const raw=electricTotal/apartments.length;apartments.forEach(u=>state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:responsiblePersonForDate(u.id,p.dueDate||p.month+'-15')?.id||ownerOf(u.id,p.dueDate||p.month+'-15')?.id,type:'electric',label:'Elektrik',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate}));}
+    if(electricTotal){const raw=electricTotal/apartments.length;apartments.forEach(u=>state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:chargeAccountPersonId({unitId:u.id,periodId:p.id,personId:null}),type:'electric',label:'Elektrik',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate}));}
+  } else if(electricTotal){const raw=electricTotal/apartments.length;apartments.forEach(u=>state.charges.push({id:uid('c'),periodId:p.id,unitId:u.id,personId:chargeAccountPersonId({unitId:u.id,periodId:p.id,personId:null}),type:'electric',label:'Elektrik',rawAmount:raw,amount:roundTL(raw),dueDate:p.dueDate}));}
   saveState();logAudit('Dönem hesaplandı',p.month);notify('Hesaplama tamamlandı. Borçlar tam TL olarak oluşturuldu.');render();
 }
 
