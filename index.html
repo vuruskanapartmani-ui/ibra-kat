@@ -1990,9 +1990,11 @@ function chargeAccountPersonId(c){
   return !ambiguous&&chosen.length===1?chosen[0].personId:null;
 }
 function personLedgerEntries(unitId,personId){
+  const rels=ledgerResponsibilityBounds(unitId,personId);
+  const allowed=date=>!date||rels.some(r=>(!r.startDate||r.startDate<=date)&&(!r.endDate||r.endDate>=date));
   return {
-    charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId),
-    payments:state.payments.filter(p=>p.unitId===unitId&&p.personId===personId)
+    charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId&&allowed(ledgerChargePeriodDate(c))),
+    payments:state.payments.filter(p=>p.unitId===unitId&&p.personId===personId&&allowed(p.date||null))
   };
 }
 function bankNameForPayment(p){
@@ -2120,7 +2122,7 @@ function openPersonLedger(unitId,personId){
   const dateInfo=rels.map(r=>(r.startDate||'Başlangıç belirlenmemiş')+' → '+(r.endDate||'Devam ediyor')).join(' | ');
   const unresolved=state.charges.filter(c=>c.unitId===unitId&&!chargeAccountPersonId(c)).length;
   openModal('<h2>'+esc(p.name)+' · Kişisel Cari</h2><div class="small muted">'+esc(u.label)+' · '+esc(dateInfo)+'</div>'
-    +'<div class="notice">Bu ekranda yalnızca kişiye bağlı borçlar ve ödemeler yer alır. Dairenin önceki sakinlerine ait hareketler eklenmez.</div>'
+    +'<div class="notice">Bu ekranda yalnızca kişiye bağlı ve sorumluluk tarihleri içindeki borçlar ile ödemeler yer alır. Önceki kişilerin işlemleri eklenmez. Dönem ortasındaki geçişler ayrıca kontrol edilir.</div>'
     +(unresolved?'<div class="notice warn">'+unresolved+' borç kaleminin sorumlusu belirlenmemiş. Kişisel bakiyeye dahil edilmedi. Daire Merkezi üzerinden kontrol edilmelidir.</div>':'')
     +ledgerRowsHTML(unitId,entries.charges,entries.payments,personId)
     +'<div class="actions" style="margin-top:12px"><button onclick="openUnitCenter(\''+unitId+'\')">← Daire Merkezine Dön</button><button onclick="openPersonProfileEditor(\''+unitId+'\',\''+personId+'\')">Kişi Bilgileri</button></div>');
@@ -2700,8 +2702,9 @@ function emailPersonLedger(unitId,personId){
   const u=unit(unitId),pp=person(personId);
   if(!pp){notify('Kişi kaydı bulunamadı.');return}
   const ppEmails=personEmails(pp); if(!ppEmails.length){notify('Bu kişinin kayıtlı e-posta adresi yok.');return}
-  const charges=state.charges.filter(c=>c.unitId===unitId&&c.personId===personId);
-  const pays=state.payments.filter(x=>x.unitId===unitId&&x.personId===personId);
+  const entries=personLedgerEntries(unitId,personId);
+  const charges=entries.charges;
+  const pays=entries.payments;
   const total=charges.reduce((a,c)=>a+Number(c.amount||0),0);
   const paid=pays.reduce((a,x)=>a+Number(x.amount||0),0);
   const balance=total-paid;
