@@ -2542,7 +2542,14 @@ function bindDebtSplits(root,entries){
   root.querySelectorAll('[data-allocation]').forEach((el,i)=>{
     const e=entries[i], parts=el.querySelector('[data-parts]');
     const old=e.existingAllocation||[];
-    parts.innerHTML=old.length?old.map(p=>debtSplitRow(e,p.personId||'',p.amount)).join(''):debtSplitRow(e,defaultDebtPerson(e),e.amount);
+    const originalTotal=old.reduce((n,p)=>n+debtCents(p.amount),0);
+    const desired=debtCents(e.amount);
+    let soFar=0;
+    const distributed=old.map((p,i)=>{
+      const cents=i===old.length-1?desired-soFar:originalTotal?Math.round(desired*debtCents(p.amount)/originalTotal):0;
+      soFar+=cents;return {...p,amount:cents/100};
+    });
+    parts.innerHTML=old.length?distributed.map(p=>debtSplitRow(e,p.personId||'',p.amount)).join(''):debtSplitRow(e,defaultDebtPerson(e),e.amount);
     el.querySelector('[data-add]').addEventListener('click',()=>{
       const assigned=[...parts.querySelectorAll('[data-amount]')].reduce((n,input)=>n+debtCents(input.value),0);
       const remainder=debtCents(e.amount)-assigned;
@@ -2572,32 +2579,39 @@ function readDebtSplits(root,entries){
   return selections;
 }
 function archiveDebtPlan(entries){
-  const accepted=[],errors=[],seen=new Map();let repeated=0;
+  const accepted=[],errors=[],seen=new Map();let repeated=0,corrected=0;
   for(const e of entries){
-    const key=debtAllocationKey(e), p=state.periods.find(p=>p.month===e.month);
+    const key=debtAllocationKey(e),p=state.periods.find(p=>p.month===e.month);
     const duplicate=seen.get(key);
     if(duplicate){
       if(duplicate.due===e.due&&debtCents(duplicate.amount)===debtCents(e.amount))repeated++;
-      else errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' dosyalarda farklı.');
+      else errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' PDF dosyaları kendi aralarında farklı.');
       continue;
     }
     if([...seen.values()].some(other=>other.unit.id===e.unit.id&&other.month===e.month&&debtCategoriesOverlap(other.type,e.type))){
       errors.push(e.unit.label+' · '+e.month+' · toplam su ve ayrı su kalemleri çakışıyor.');continue;
     }
     seen.set(key,e);
-    if(!unit(e.unit.id)){errors.push(e.unit.label+' artık kayıtlı değil.');continue;}
+    if(!unit(e.unit.id)){errors.push(e.unit.label+' sisteme kayıtlı değil.');continue;}
     const matched=state.charges.filter(c=>c.periodId===p?.id&&c.unitId===e.unit.id&&debtCategoriesOverlap(c.type,e.type));
-    if(matched.length){
-      if(!matched.every(c=>c.type===e.type&&c.dueDate===e.due&&c.source==='legacy_manual')||
-         matched.reduce((sum,c)=>sum+debtCents(c.amount),0)!==debtCents(e.amount)){
-        errors.push(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+' mevcut kayıtla çakışıyor. PDF '+trMoney2(e.amount)+' (vade '+e.due+'), kayıtlı '+trMoney2(matched.reduce((sum,c)=>sum+c.amount,0))+' (vade '+[...new Set(matched.map(c=>c.dueDate||'—'))].join(', ')+').');continue;
-      }
-      const paid=state.payments.some(pay=>matched.some(c=>c.id===pay.chargeId||'late_'+c.id===pay.chargeId));
-      if(paid){repeated++;continue;}
-      accepted.push({...e,existingAllocation:matched.map(c=>({id:c.id,personId:c.personId,amount:c.amount}))});
-    }else accepted.push(e);
+    if(!matched.length){accepted.push(e);continue;}
+    const total=matched.reduce((sum,c)=>sum+debtCents(c.amount),0);
+    const exact=matched.every(c=>c.type===e.type&&c.dueDate===e.due&&c.source==='legacy_manual')&&total===debtCents(e.amount);
+    // Never alter a paid charge, an auto-calculated charge or a different debt type.
+    const paid=state.payments.some(pay=>matched.some(c=>c.id===pay.chargeId||'late_'+c.id===pay.chargeId));
+    if(!matched.every(c=>c.source==='legacy_manual'&&c.type===e.type)){
+      errors.push(e.unit.label+' · '+HISTORICAL_DEBT_TYPES[e.type]+' mevcut kaydı PDF aktarımı dışında oluşturulmuş. Güvenli otomatik düzeltme yapılamaz.');continue;
+    }
+    if(paid){
+      if(exact){repeated++;continue;}
+      errors.push(e.unit.label+' · '+HISTORICAL_DEBT_TYPES[e.type]+' için ödeme bağlantısı var; kayıt otomatik değiştirilemez. Önce hareketi kontrol edin.');continue;
+    }
+    if(exact){repeated++;continue;}
+    corrected++;
+    accepted.push({...e,needsCorrection:true,previousAmount:total/100,
+      existingAllocation:matched.map(c=>({id:c.id,personId:c.personId,amount:c.amount,dueDate:c.dueDate}))});
   }
-  return {accepted,errors,repeated};
+  return {accepted,errors,repeated,corrected};
 }
 function applyArchiveDebtSplits(entries,selections,preview){
   const plan=archiveDebtPlan(entries);
@@ -2617,7 +2631,7 @@ function applyArchiveDebtSplits(entries,selections,preview){
       state.periods.push(p);
     }
     const existing=e.existingAllocation||[];
-    if(existing.length===shares.length&&shares.every(s=>existing.some(c=>(c.personId||null)===s.personId&&debtCents(c.amount)===debtCents(s.amount))))continue;
+    if(existing.length===shares.length&&shares.every(s=>existing.some(c=>(c.personId||null)===s.personId&&debtCents(c.amount)===debtCents(s.amount)&&c.dueDate===e.due)))continue;
     // Keep unchanged shares and their record IDs. Any charge linked to a payment was excluded above.
     const keep=new Set();
     for(const share of shares){
@@ -2625,7 +2639,7 @@ function applyArchiveDebtSplits(entries,selections,preview){
       if(old){
         keep.add(old.id);
         const charge=state.charges.find(c=>c.id===old.id);
-        charge.amount=share.amount;charge.rawAmount=share.amount;
+        charge.amount=share.amount;charge.rawAmount=share.amount;charge.dueDate=e.due;
       }else {
         state.charges.push({id:uid('c'),periodId:p.id,unitId:e.unit.id,personId:share.personId,type:e.type,
           label:HISTORICAL_DEBT_TYPES[e.type],rawAmount:share.amount,amount:share.amount,dueDate:e.due,source:'legacy_manual',note:e.note||''});
