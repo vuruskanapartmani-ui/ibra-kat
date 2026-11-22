@@ -2012,7 +2012,7 @@ function openUnitSetup(unitId){
 }
 const HISTORICAL_DEBT_TYPES={
   dues:'Aidat',gas:'Doğalgaz',water:'Su (toplam)',cold_water:'Soğuk su',
-  hot_water:'Sıcak su',electric:'Elektrik',legacy_debt:'Diğer borç',
+  hot_water:'Sıcak su',electric:'Elektrik',legacy_debt:'Diğer borç',rounding_adjustment:'PDF toplam yuvarlama farkı',
 };
 function sheetKey(value){return normTR(value).replace(/[^A-Z0-9]+/g,' ').trim()}
 function historicalDebtType(value){
@@ -2021,6 +2021,7 @@ function historicalDebtType(value){
     AIDAT:'dues','SABIT AIDAT':'dues',GAZ:'gas',DOGALGAZ:'gas','DOGAL GAZ':'gas',
     SU:'water','TOPLAM SU':'water','SU TOPLAM':'water','SOGUK SU':'cold_water',
     'SICAK SU':'hot_water',ELEKTRIK:'electric',DIGER:'legacy_debt','EK GIDER':'legacy_debt',
+    'PDF TOPLAM YUVARLAMA FARKI':'rounding_adjustment',
   })[key];
 }
 function debtUnit(value){
@@ -2373,19 +2374,23 @@ function automaticPdfRecord(document,filename){
       if(Math.abs(shown-calculated)>=100)throw new Error(row[0]+' · Kalemler '+trMoney2(calculated/100)+', PDF toplamı '+trMoney2(shown/100)+'.');
       if(shown!==calculated)rounding++;
     }
-    if(rounding)warnings.push(rounding+' satırda 1 TL’nin altındaki fark için kuruşlu kalemler kullanıldı.');
+    if(rounding)warnings.push(rounding+' dairede PDF toplamı ile kuruşlu kalemler arasında 1 TL’den az yuvarlama farkı var. Önizlemede ayrı kalem olarak gösterilecek.');
   }else{
     let skippedGas=0;
     for(const row of rows){
       if(row.length!==8||!row.slice(1,5).every(v=>meterCell(v,1)!==null))
         throw new Error(row[0]+' · Bir su endeksi okunamadı.');
       const previous=meterCell(row[5],1),current=meterCell(row[6],1),reported=spreadsheetAmount(row[7]);
-      if(previous===null||current===null||reported===null||current<previous||Math.abs((current-previous)/1000-reported)>0.005){
+      if(previous===null||current===null||current<previous){
         if(row.slice(5).some(Boolean))skippedGas++;
         row[5]='';row[6]='';row[7]='';
+      }else{
+        const calculated=(current-previous)/1000;
+        if(reported===null||Math.abs(reported-calculated)>0.005)skippedGas++;
+        row[7]=calculated.toFixed(3).replace('.',',');
       }
     }
-    if(skippedGas)warnings.push(skippedGas+' gaz satırı: yazılı tüketim ile endeks farkı uyuşmadığı için bekletildi.');
+    if(skippedGas)warnings.push(skippedGas+' gaz satırında PDF’nin tüketim sütunu endekslerle uyuşmuyor. Endeks farkından hesaplanan değerler önizlemede gösterilir.');
   }
   return {context:{mode,month,due,scale:1,filename},sheets:[[columns,...rows]],warnings};
 }
@@ -2433,7 +2438,9 @@ async function readArchivePdfs(files,progress){
       status('Okunuyor…');
       entry.doc=await pdfArchiveTables(file,'auto',status);
       entry.record=automaticPdfRecord(entry.doc,file.name);
-    }catch(error){entry.error=error.message;}
+    }catch(error){entry.error=error.message;
+      if(entry.doc&&!entry.record)entry.error+=' · PDF okundu. “Belgeyi düzelt” ile daire satırını düzeltip aktarabilirsiniz.';
+    }
   }
   return entries;
 }
@@ -2947,7 +2954,7 @@ function readFormMeters(sheets,p,scale,{historical=false,requirePeriod=false}={}
         if(current===null||(String(previousText??'').trim()&&previous===null)){
           errors.push(label+' · '+target.label+' '+FORM_METER_LABELS[c.type]+' endeksi geçersiz.');continue;
         }
-        if(historical&&c.type==='gas'&&reportedGas>=0&&String(row[reportedGas]??'').trim()){
+        if(!historical&&c.type==='gas'&&reportedGas>=0&&String(row[reportedGas]??'').trim()){
           const printed=spreadsheetAmount(row[reportedGas]);
           if(printed===null||previous===null||Math.abs(printed-(current-previous)/1000)>0.005){
             errors.push(label+' · '+target.label+' gaz tüketimi endeks farkıyla uyuşmuyor. Gazı hariç bırakabilir veya kaynağı kontrol edebilirsiniz.');continue;
