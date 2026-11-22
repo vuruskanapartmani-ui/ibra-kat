@@ -397,7 +397,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.45';
+const APP_VERSION = 'V1.46';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -887,13 +887,7 @@ function normalizeState(s){
   s.responsibilities.forEach(r=>{ if(r.loginEnabled==null) r.loginEnabled=!!r.active; if(r.primaryResponsible==null) r.primaryResponsible=false; });
   s.people.forEach(p=>{ p.emails=Array.isArray(p.emails)?p.emails.filter(Boolean):[]; if(p.email&&!p.emails.includes(p.email))p.emails.unshift(p.email); p.emails=[...new Set(p.emails.map(x=>String(x).trim()).filter(Boolean))]; p.email=p.emails[0]||p.email||''; });
   s.units.forEach(u=>{ u.notificationEmails=Array.isArray(u.notificationEmails)?[...new Set(u.notificationEmails.map(x=>String(x).trim()).filter(Boolean))]:[]; });
-  // Bankadan gelen eski ödeme kayıtlarında kişi bağlantısı eksik/yanlışsa, güncel aktif kişi eşleşmesiyle onar.
-  (s.payments||[]).forEach(pay=>{
-    if(!pay.bankTransactionId||!pay.unitId)return;
-    const tx=(s.bankTransactions||[]).find(t=>t.id===pay.bankTransactionId); if(!tx)return;
-    const hits=personSuggestedUnitsFromState(s,tx.description||'',pay.unitId);
-    if(hits.length===1) pay.personId=hits[0].personId;
-  });
+  // Do not silently reassign historical payments during normalization.
   return s;
 }
 function saveState(){
@@ -2565,7 +2559,8 @@ function bankProfile(id){return BANK_PROFILES[id]||{id,name:id==='unknown'?'Bank
 function txAllocated(txId){return state.payments.filter(p=>p.bankTransactionId===txId).reduce((a,p)=>a+Number(p.amount||0),0)}
 function bankTxStatus(tx){const a=txAllocated(tx.id),amt=Math.max(0,Number(tx.amount||0));return amt<=0?'Gider':a<=0?'Eşleştirme bekliyor':a+0.005>=amt?'Tam dağıtıldı':`Kısmi · ${trMoney(amt-a)} kaldı`}
 let bankFilterState={bank:'all',direction:'all',status:'all',unit:'all',q:''};
-function setBankFilter(k,v){bankFilterState[k]=v;render()}
+const bankSelectedIds=new Set();
+function setBankFilter(k,v){syncBankSelectionFromDOM();bankFilterState[k]=v;render()}
 function bankFilterStatus(tx){const amount=Number(tx.amount||0);if(amount>0){const a=txAllocated(tx.id);return a+0.005>=amount?'processed':'pending'}return tx.expenseId?'processed':'pending'}
 function filteredBankTransactions(list){
   const q=normTR(bankFilterState.q||'');
@@ -2574,7 +2569,7 @@ function filteredBankTransactions(list){
     if(bankFilterState.direction==='income'&&Number(tx.amount)<=0)return false;
     if(bankFilterState.direction==='expense'&&Number(tx.amount)>=0)return false;
     if(bankFilterState.status!=='all'&&bankFilterStatus(tx)!==bankFilterState.status)return false;
-    if(bankFilterState.unit!=='all'&&!(tx.suggestedUnitIds||[]).includes(bankFilterState.unit)&&!state.payments.some(p=>p.bankTransactionId===tx.id&&p.unitId===bankFilterState.unit))return false;
+    if(bankFilterState.unit!=='all'&&!effectiveBankMatch(tx).suggested.includes(bankFilterState.unit)&&!state.payments.some(p=>p.bankTransactionId===tx.id&&p.unitId===bankFilterState.unit))return false;
     if(q&&!normTR(`${tx.description||''} ${tx.reference||''} ${tx.bankName||''}`).includes(q))return false;
     return true;
   });
@@ -2587,14 +2582,14 @@ function managerAccounting(){
   const visibleBank=filteredBankTransactions(bank);
   const rows=visibleBank.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(x=>{
     const bp=bankProfile(x.bankId),alloc=txAllocated(x.id),income=Number(x.amount)>0;
-    const suggested=(x.suggestedUnitIds||[]).map(id=>unit(id)).filter(Boolean);
-    const suggestionHtml=income&&suggested.length?`<div class="notice" style="margin-top:8px"><b>Öneri: ${suggested.map(u=>u.label).join(' + ')}</b> · ${matchConfidenceLabel(x.matchConfidence)}<br><span class="small">${esc(x.matchReason||'')}</span></div>`:income?`<div class="small muted" style="margin-top:7px">Daire önerisi bulunamadı.</div>`:'';
-    const autoButton=income&&suggested.length===1&&x.matchConfidence==='high'&&alloc===0?`<button class="soft" onclick="autoAllocateBankTransaction('${x.id}')">${suggested[0].label}’e Otomatik İşle</button>`:'';
+    const match=effectiveBankMatch(x),suggested=match.suggested.map(id=>unit(id)).filter(Boolean);
+    const suggestionHtml=income&&suggested.length?`<div class="notice" style="margin-top:8px"><b>Öneri: ${suggested.map(u=>u.label).join(' + ')}</b> · ${matchConfidenceLabel(match.confidence)}<br><span class="small">${esc(match.reason||'')}</span></div>`:income?`<div class="small muted" style="margin-top:7px">Daire önerisi bulunamadı.</div>`:'';
+    const autoButton=income&&suggested.length===1&&match.confidence==='high'&&alloc===0?`<button class="soft" onclick="autoAllocateBankTransaction('${x.id}')">${suggested[0].label}’e Otomatik İşle</button>`:'';
     const suggestedCat=!income?suggestExpenseCategory(x.description):'';
     const alreadyDone=income?alloc+0.005>=Number(x.amount):!!x.expenseId;
-    const eligible=income?(suggested.length===1&&x.matchConfidence==='high'&&alloc===0):!x.expenseId;
+    const eligible=income?alloc+0.005<Number(x.amount):!x.expenseId;
     const expenseCategoryHtml=!income?`<div class="txTools"><label>Gider kategorisi<select id="bankCat_${x.id}">${expenseCategoryOptions(suggestedCat)}</select></label><span class="badge">Öneri: ${esc(suggestedCat)}</span></div>`:'';
-    const bulkCheck=eligible?`<label style="display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:8px;font-weight:700"><input class="bank-bulk-check" data-tx="${x.id}" type="checkbox" onchange="updateBulkBankBar()"> Doğru / Seç</label>`:(alreadyDone?`<div class="small ok" style="margin-top:8px">✓ İşlendi</div>`:'');
+    const bulkCheck=eligible?`<label style="display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:8px;font-weight:700"><input class="bank-bulk-check" data-tx="${x.id}" type="checkbox" ${bankSelectedIds.has(x.id)?'checked':''} onchange="updateBulkBankBar()"> Doğru / Seç</label>`:(alreadyDone?`<div class="small ok" style="margin-top:8px">✓ İşlendi</div>`:'');
     const expenseButton=!income&&!x.expenseId?`<button onclick="openBankExpense('${x.id}')">Gider Olarak İşle</button>`:'';
     return `<div class="bankTx ${income?'income':'expense'} ${alreadyDone?'done':'pending'}"><div class="txTop"><div><b>${x.date} · ${esc(bp.name)}</b><div class="txMeta">${esc(bp.account)} · ${esc(x.reference||'Referans yok')}</div><div class="txDesc">${esc(x.description)}</div></div><div><div class="txAmount ${income?'ok':'danger'}">${trMoney(x.amount)}</div><div class="txStatus ${alreadyDone?'ok':'warn'}">${esc(bankTxStatus(x))}</div>${bulkCheck}</div></div>${suggestionHtml}${expenseCategoryHtml}${income?`<div class="small" style="margin-top:7px">Dağıtılan ${trMoney(alloc)} · Dağıtılmamış ${trMoney(Math.max(0,Number(x.amount)-alloc))}</div><div class="actions" style="margin-top:7px"><button onclick="openBankAllocation('${x.id}')">Dağılımı Düzenle</button>${autoButton}</div>`:`<div class="actions" style="margin-top:7px">${expenseButton}</div>`}</div>`;
   }).join('');
@@ -2604,8 +2599,8 @@ function managerAccounting(){
   <div class="grid2" style="margin-top:10px"><button class="card" onclick="triggerBankImport()"><h3>İki Bankadan Excel Yükle</h3><div class="muted small">İş Bankası ve Ziraat dosyası otomatik tanınır; hangi banka olduğu her harekette görünür.</div></button><button class="card" onclick="openPayment()"><h3>Manuel Tahsilat Gir</h3><div class="muted small">Banka / nakit seç, daireye veya borç kalemine işle.</div></button></div>
   <div class="notice" style="margin-top:10px"><b>Gelir mantığı:</b> Düzenli gelir kalemi Aidat; dönemsel gelir ise Yönetici tarafından oluşturulan Ek Borç / Tahakkuktur. Bankaya para yatması tahsilattır ve ilgili borçlara dağıtılır.</div>
   <div class="card bankFilters" style="margin-top:10px"><div class="sectionHead"><div><h3>Banka Hareketlerini Filtrele</h3><div class="small muted">${visibleBank.length} / ${bank.length} hareket gösteriliyor</div></div><button onclick="bankFilterState={bank:'all',direction:'all',status:'all',unit:'all',q:''};render()">Filtreleri Temizle</button></div><div class="grid4" style="margin-top:8px"><label>Banka<select onchange="setBankFilter('bank',this.value)"><option value="all">Tüm bankalar</option>${Object.values(BANK_PROFILES).map(b=>`<option value="${b.id}" ${bankFilterState.bank===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></label><label>Hareket<select onchange="setBankFilter('direction',this.value)"><option value="all">Gelen + Giden</option><option value="income" ${bankFilterState.direction==='income'?'selected':''}>Gelen ödemeler</option><option value="expense" ${bankFilterState.direction==='expense'?'selected':''}>Giderler</option></select></label><label>Durum<select onchange="setBankFilter('status',this.value)"><option value="all">Tüm durumlar</option><option value="pending" ${bankFilterState.status==='pending'?'selected':''}>Kontrol bekleyen</option><option value="processed" ${bankFilterState.status==='processed'?'selected':''}>İşlenmiş</option></select></label><label>Daire<select onchange="setBankFilter('unit',this.value)"><option value="all">Tüm daireler</option>${state.units.map(u=>`<option value="${u.id}" ${bankFilterState.unit===u.id?'selected':''}>${u.label}</option>`).join('')}</select></label></div><label style="margin-top:8px">Ara<input value="${esc(bankFilterState.q)}" placeholder="Kişi, açıklama, referans..." oninput="bankFilterState.q=this.value;render()"></label></div>
-  <div id="bulkBankBar" class="card bulkBar" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:6px;z-index:8"><div><b>Toplu banka işlemi</b><div id="bulkBankCount" class="small muted">0 hareket seçili</div></div><div class="actions"><button onclick="selectAllEligibleBankRows(true)">Uygunların Tümünü Seç</button><button onclick="selectAllEligibleBankRows(false)">Seçimi Temizle</button><button class="primary" onclick="processSelectedBankTransactions()">Seçilenleri İşle</button></div></div>
-  <div class="notice" style="margin-top:10px"><b>Toplu işlem:</b> Giderlerde kart üzerinde görünen kategoriyi kontrol et; doğruysa sağdaki kutuyu işaretle. Gelirlerde yalnızca tek daire önerisi ve yüksek güven varsa toplu işlem yapılır. Tek banka hareketi birden fazla daireye bölünecekse “Dağılımı Gör / Düzenle” kullanılır.</div>
+  <div id="bulkBankBar" class="card bulkBar" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:6px;z-index:8"><div><b>Toplu banka işlemi</b><div id="bulkBankCount" class="small muted">0 hareket seçili</div></div><div class="actions"><button onclick="selectAllFilteredBankRows()">Filtrelenenleri Seç</button><button onclick="selectAllEligibleBankRows(false)">Seçimi Temizle</button><button onclick="openBulkUnitAssignment()">Seçilenleri Daireye Ata</button><button class="primary" onclick="processSelectedBankTransactions()">Güvenli Otomatik İşle</button></div></div>
+  <div class="notice" style="margin-top:10px"><b>Toplu işlem:</b> Giderlerde kart üzerinde görünen kategoriyi kontrol et; doğruysa sağdaki kutuyu işaretle. Daire önerisi olmasa da gelen ödemeleri seçip 'Seçilenleri Daireye Ata' ile doğruladığınız daireye topluca işleyebilirsiniz. Otomatik işlem yalnızca kesin eşleşmeleri işler. Tek banka hareketi birden fazla daireye bölünecekse “Dağılımı Gör / Düzenle” kullanılır.</div>
   <div class="notice" style="margin-top:10px"><b>Ödeme dağıtımı:</b> Tek banka hareketi birden fazla daireye ve birden fazla borç kalemine bölünebilir. Ödeyen kişi borçlu kişiyle aynı olmak zorunda değildir.</div>
   <div class="card" style="margin-top:10px"><div class="sectionHead"><div><h3>Bu Ay Giderler</h3><div class="small muted">Kategori bazında yönetilir; istediğin zaman yeni kategori ekleyebilirsin.</div></div><button onclick="openExpenseForm()">+ Gider Ekle</button></div>${expByCat.map(x=>`<div class="row"><span>${esc(x.cat)}</span><b>${trMoney(x.total)}</b></div>`).join('')||'<p class="muted small">Kayıt yok.</p>'}<div class="actions" style="margin-top:8px"><button onclick="openExpenseCategoryManager()">Gider Kategorilerini Yönet</button></div></div>
   <div class="card sectionTint" style="margin-top:10px"><h3>Banka Hareketleri</h3><div class="small muted">Gelen para: daire/borç eşleştirme · Çıkan para: gider kategorisine işleme</div><div class="list" style="margin-top:8px">${rows||'<p class="muted small">Excel henüz yüklenmedi.</p>'}</div></div>`;
@@ -2670,34 +2665,62 @@ function latestBankBalance(rows){
 function excelDateToISO(value){return spreadsheetDateKey(value).slice(0,10)}
 function periodIdForDate(date){const ym=String(date||'').slice(0,7);return state.periods.find(p=>p.month===ym)?.id||activePeriodId}
 function unitIdFromNumber(n){n=Number(n);return n>=1&&n<=33?`apt${n}`:null}
+function matchWords(v){return ' '+normTR(v).replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim()+' ';}
 function extractSuggestedUnits(desc){
-  const t=normTR(desc),nums=new Set(); const pats=[/DAIRE\s*(?:NO\s*[:\-]?\s*)?(\d{1,2})/g,/D\s*(\d{1,2})(?!\d)/g,/DAI\.?\s*(\d{1,2})/g,/(\d{1,2})\s*NOLU\s*DAIRE/g];
-  pats.forEach(re=>{let m;while((m=re.exec(t)))if(Number(m[1])>=1&&Number(m[1])<=33)nums.add(Number(m[1]))});
-  return [...nums].map(unitIdFromNumber).filter(Boolean);
+  const t=matchWords(desc),found=new Set();
+  const pats=[/\bDAIRE\s*(?:NO\s*)?0?([1-9]|[12]\d|3[0-3])\b/g,/\bD\s*0?([1-9]|[12]\d|3[0-3])\b/g,/\b([1-9]|[12]\d|3[0-3])\s*NOLU\s*DAIRE\b/g];
+  pats.forEach(re=>{let m;while((m=re.exec(t)))found.add(Number(m[1]))});
+  return [...found].map(unitIdFromNumber).filter(Boolean);
 }
-function personSuggestedUnits(desc){
-  const t=normTR(desc),hits=[];
-  for(const r of (state.responsibilities||[])){
-    if(!r.active)continue;
-    const p=person(r.personId),u=unit(r.unitId); if(!p||!u)continue;
-    const n=normTR(p.name||''); if(n && n.length>=4 && t.includes(n)) hits.push({unitId:u.id,personId:p.id,name:p.name});
+function personSuggestedUnitsFromState(st,desc,unitId=null,date=''){
+  const text=matchWords(desc),hits=[],candidate=[];
+  const all=(st.responsibilities||[]).filter(r=>r.active&&(!unitId||r.unitId===unitId)
+    &&(!date||(!r.startDate||r.startDate<=date)&&(!r.endDate||date<=r.endDate)));
+  const uniq=new Set();
+  for(const r of all){
+    const p=(st.people||[]).find(x=>x.id===r.personId);if(!p)continue;
+    const words=normTR(p.name||'').replace(/[^A-Z0-9]+/g,' ').trim().split(/\s+/).filter(x=>x.length>=4);
+    const full=words.join(' ');
+    if(!words.length)continue;
+    const fullHit=full.length>=6&&text.includes(' '+full+' ');
+    const matched=words.filter(w=>text.includes(' '+w+' '));
+    if(!fullHit&&!matched.length)continue;
+    const key=r.unitId+'|'+p.id;if(uniq.has(key))continue;uniq.add(key);
+    candidate.push({unitId:r.unitId,personId:p.id,name:p.name,full:fullHit,matched:matched.length,words:words.length});
   }
-  const uniq=[]; const seen=new Set();
-  hits.forEach(h=>{const k=h.unitId+'|'+h.personId;if(!seen.has(k)){seen.add(k);uniq.push(h)}});
-  return uniq;
+  // Prefer full-name matches. A single given or family name can be enough only
+  // when it uniquely identifies one currently responsible person.
+  const full=candidate.filter(x=>x.full),pool=full.length?full:candidate;
+  if(pool.length===1)return [{...pool[0],matchKind:pool[0].full?'full':'unique_name'}];
+  return pool.map(h=>({...h,matchKind:'ambiguous'}));
 }
-function personSuggestedUnit(desc){const hits=personSuggestedUnits(desc);return hits.length===1?hits[0].unitId:null}
+function personSuggestedUnits(desc,date=''){
+  return personSuggestedUnitsFromState(state,desc,null,date);
+}
+function personSuggestedUnit(desc,date=''){const hits=personSuggestedUnits(desc,date);return hits.length===1?hits[0].unitId:null}
+function bankMatchFor(desc,date=''){
+  const explicit=extractSuggestedUnits(desc),people=personSuggestedUnits(desc,date);
+  const personUnits=[...new Set(people.map(x=>x.unitId))];
+  if(explicit.length===1){
+    const conflicting=personUnits.some(id=>id!==explicit[0]);
+    return {suggested:conflicting?[]:explicit,confidence:conflicting?'low':'high',reason:conflicting?'Daire numarası ve kişi ismi çelişiyor; yönetici kontrolü gerekli.':'Daire numarası açıkça belirtildi.',personId:people.length===1&&people[0].unitId===explicit[0]?people[0].personId:null};
+  }
+  if(explicit.length>1)return {suggested:explicit,confidence:'low',reason:'Birden fazla daire numarası var; kontrol gerekli.',personId:null};
+  if(people.length===1)return {suggested:[people[0].unitId],confidence:'high',reason:(people[0].full?'Tam ad':'Tekil ad/soyad')+' eşleşmesi: '+people[0].name+'.',personId:people[0].personId};
+  if(people.length>1)return {suggested:personUnits,confidence:'low',reason:'Birden fazla aktif kişi eşleşiyor; kontrol gerekli.',personId:null};
+  return {suggested:[],confidence:'none',reason:'Kişi veya daire anahtar kelimesi bulunamadı.',personId:null};
+}
+function effectiveBankMatch(tx){
+  // Manual confirmation must take precedence over an evolving automatic suggestion.
+  if(tx.manualUnitId)return {suggested:[tx.manualUnitId],confidence:'manual',reason:'Yönetici tarafından doğrulanan daire.',personId:tx.manualPersonId||null};
+  return bankMatchFor([tx.description||'',tx.reference||''].join(' '),tx.date||'');
+}
 function matchedPersonForTx(tx){
-  const hits=personSuggestedUnits(tx?.description||'');
-  if(hits.length===1 && (!tx?.suggestedUnitIds?.length || tx.suggestedUnitIds.includes(hits[0].unitId))) return hits[0].personId;
-  return null;
+  const match=effectiveBankMatch(tx);
+  return match.suggested.length===1?match.personId:null;
 }
 function matchReasonFor(desc,explicit,personHits){
-  if(explicit.length===1){const u=unit(explicit[0]);return `Açıklamada ${u?.label||'daire numarası'} açıkça geçti.`}
-  if(explicit.length>1)return `Açıklamada ${explicit.map(id=>unit(id)?.label||id).join(', ')} geçti.`;
-  if(personHits?.length===1){const h=personHits[0],u=unit(h.unitId);return `Aktif kişi adı ${h.name} ile ${u?.label||'daire'} birebir eşleşti.`}
-  if(personHits?.length>1)return `Kişi adı birden fazla aktif daire/ilişkiyle eşleşti; yönetici kontrolü gerekli.`;
-  return 'Daire numarası veya kesin aktif kişi eşleşmesi bulunamadı.';
+  return bankMatchFor(desc).reason;
 }
 function matchConfidenceLabel(c){return c==='high'?'Yüksek güven':c==='low'?'Düşük güven':'Öneri yok'}
 function detectBankProfile(headers,aoa){const h=headers.map(normTR).join('|'),all=normTR(aoa.slice(0,16).flat().join(' '));if(h.includes('FIS NO')||all.includes('ZIRAAT BANKASI')||all.includes('YENI GIRNE/IZMIR'))return BANK_PROFILES.ziraat;if(h.includes('TARIH/SAAT')||h.includes('REFERANS')||all.includes('NERGIS/IZMIR')||all.includes('IS BANKASI')||all.includes('ISCEP'))return BANK_PROFILES.isbank;return null}
@@ -2736,7 +2759,7 @@ function importBankWorkbook(wb,fileName,{balanceOnly=false,expectedBank=null,per
     const {amount,description,reference}=row,date=row.key.slice(0,10);
     if(!amount||!description)continue;
     const dedupe=`${bp.id}|${reference||''}|${date}|${amount}|${description}`; if(state.bankTransactions.some(x=>x.dedupeKey===dedupe)){skipped++;continue}
-    const explicit=extractSuggestedUnits(description),personHits=explicit.length?[]:personSuggestedUnits(description),personUnit=personHits.length===1?personHits[0].unitId:null,suggested=explicit.length?explicit:(personUnit?[personUnit]:[]),confidence=(explicit.length===1||personHits.length===1)?'high':(explicit.length>1||personHits.length>1)?'low':'none',matchReason=matchReasonFor(description,explicit,personHits);
+    const match=bankMatchFor(description+' '+reference,date),suggested=match.suggested,confidence=match.confidence,matchReason=match.reason;
     if(suggested.length)autoHints++;
     const tx={id:uid('bt'),periodId:periodIdForDate(date),bankId:bp.id,bankName:bp.name,bankAccount:bp.short,date,amount,description,reference,dedupeKey:dedupe,direction:amount>0?'income':'expense',suggestedUnitIds:suggested,matchConfidence:confidence,matchReason,sourceFile:fileName,statementBalance:row.balance,statementKey:row.key};
     state.bankTransactions.push(tx);added++;
@@ -2809,11 +2832,11 @@ function chargePaidAmount(chargeId,excludeTxId=null){return state.payments.filte
 function openChargesForUnit(unitId,excludeTxId=null){return state.charges.filter(c=>c.unitId===unitId).map(c=>({...c,remaining:Math.max(0,Number(c.amount||0)-chargePaidAmount(c.id,excludeTxId))})).filter(c=>c.remaining>0.005).sort((a,b)=>((a.dueDate||period(a.periodId)?.month||'').localeCompare(b.dueDate||period(b.periodId)?.month||'')))}
 let allocSeq=0,allocTxId=null;
 function openBankAllocation(txId){
-  const tx=state.bankTransactions.find(x=>x.id===txId);if(!tx)return;allocTxId=txId;allocSeq=0;const existing=state.payments.filter(p=>p.bankTransactionId===txId);const bp=bankProfile(tx.bankId),suggest=tx.suggestedUnitIds?.[0]||'';
+  const tx=state.bankTransactions.find(x=>x.id===txId);if(!tx)return;allocTxId=txId;allocSeq=0;const existing=state.payments.filter(p=>p.bankTransactionId===txId);const bp=bankProfile(tx.bankId),suggest=effectiveBankMatch(tx).suggested?.[0]||'';
   openModal(`<h2>Ödeme Dağıtımı</h2><div class="notice"><b>${esc(bp.name)} · ${tx.date} · ${trMoney(tx.amount)}</b><br>${esc(tx.description)}</div><div id="allocRows" class="stack" style="margin-top:10px"></div><div class="actions" style="margin-top:10px"><button onclick="addAllocationRow('${suggest}')">+ Dağıtım Satırı</button><button class="primary" onclick="saveBankAllocation()">Dağılımı Kaydet</button></div><div id="allocTotal" class="notice" style="margin-top:10px"></div>`);
-  if(existing.length)existing.forEach(p=>addAllocationRow(p.unitId,p.chargeId||'',p.amount)); else addAllocationRow(suggest,'','');updateAllocationTotal();
+  if(existing.length)existing.forEach(p=>addAllocationRow(p.unitId,p.chargeId||'',p.amount)); else addAllocationRow(suggest,'',Math.max(0,Math.round((Number(tx.amount)-txAllocated(tx.id))*100)/100));updateAllocationTotal();
 }
-function addAllocationRow(unitId='',chargeId='',amount=''){const id=`al_${++allocSeq}`,wrap=$('#allocRows'),opts=state.units.map(u=>`<option value="${u.id}" ${u.id===unitId?'selected':''}>${u.label} · ${esc(occupantOf(u.id)?.name || '')}</option>`).join('');wrap.insertAdjacentHTML('beforeend',`<div class="card" id="${id}"><div class="grid3"><label>Daire / Dükkan<select class="alUnit" onchange="refreshAllocationCharges('${id}')">${opts}</select></label><label>Borç kalemi<select class="alCharge"></select></label><label>Tutar<input class="alAmount" type="number" step="0.01" value="${amount||''}" oninput="updateAllocationTotal()"></label></div><button class="dangerBtn" style="margin-top:8px" onclick="document.getElementById('${id}').remove();updateAllocationTotal()">Satırı Sil</button></div>`);refreshAllocationCharges(id,chargeId)}
+function addAllocationRow(unitId='',chargeId='',amount=''){const id=`al_${++allocSeq}`,wrap=$('#allocRows'),opts=state.units.map(u=>`<option value="${u.id}" ${u.id===unitId?'selected':''}>${u.label} · ${esc(occupantOf(u.id)?.name || '')}</option>`).join('');wrap.insertAdjacentHTML('beforeend',`<div class="card" id="${id}"><div class="grid3"><label>Daire / Dükkan<select class="alUnit" onchange="refreshAllocationCharges('${id}')">${opts}</select></label><label>Borç kalemi<select class="alCharge"></select></label><label>Tutar<input class="alAmount" type="number" step="0.01" value="${amount===''?'':Number(amount).toFixed(2)}" oninput="updateAllocationTotal()"></label></div><button class="dangerBtn" style="margin-top:8px" onclick="document.getElementById('${id}').remove();updateAllocationTotal()">Satırı Sil</button></div>`);refreshAllocationCharges(id,chargeId)}
 function refreshAllocationCharges(rowId,selected=''){const box=document.getElementById(rowId),u=box.querySelector('.alUnit').value,sel=box.querySelector('.alCharge'),open=openChargesForUnit(u,allocTxId);sel.innerHTML=`<option value="">Genel ödeme / avans</option>`+open.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${isoMonthLabel(period(c.periodId)?.month||activePeriodId)} · ${esc(c.label||c.type)} · kalan ${trMoney(c.remaining)}</option>`).join('')}
 function updateAllocationTotal(){const tx=state.bankTransactions.find(x=>x.id===allocTxId),sum=$$('#allocRows .alAmount').reduce((a,i)=>a+Number(i.value||0),0),el=$('#allocTotal');if(el&&tx)el.innerHTML=`Dağıtılan <b>${trMoney(sum)}</b> · Banka hareketi <b>${trMoney(tx.amount)}</b> · Kalan <b>${trMoney(Math.max(0,Number(tx.amount)-sum))}</b>`}
 function saveBankAllocation(){const tx=state.bankTransactions.find(x=>x.id===allocTxId);if(!tx)return;const rows=$$('#allocRows .card').map(box=>({unitId:box.querySelector('.alUnit').value,chargeId:box.querySelector('.alCharge').value,amount:Number(box.querySelector('.alAmount').value||0)})).filter(x=>x.amount>0);const sum=rows.reduce((a,x)=>a+x.amount,0);if(sum-Number(tx.amount)>0.005){notify('Dağıtım toplamı banka hareketinden büyük olamaz.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);const bp=bankProfile(tx.bankId);rows.forEach(r=>{const c=state.charges.find(x=>x.id===r.chargeId),pid=c?.personId||matchedPersonForTx(tx)||null;state.payments.push({id:uid('pay'),periodId:c?.periodId||tx.periodId||activePeriodId,unitId:r.unitId,personId:pid,amount:r.amount,date:tx.date,description:`${bp.name} banka ödemesi · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:r.chargeId||null,reference:tx.reference})});tx.allocatedAmount=sum;saveState();logAudit('Banka ödemesi dağıtıldı',`${bp.name} · ${trMoney(sum)}`);closeModal();render();notify('Banka ödemesi dağıtıldı.')}
@@ -4452,18 +4475,23 @@ async function saveExpense(){
 function openBankExpense(txId){const tx=state.bankTransactions.find(x=>x.id===txId);if(!tx)return;if(tx.expenseId){notify('Bu banka çıkışı zaten gider olarak işlendi.');return}openExpenseForm({date:tx.date,category:suggestExpenseCategory(tx.description),description:tx.description,amount:Math.abs(Number(tx.amount)),paymentMethod:'Banka',bankTransactionId:tx.id})}
 
 function updateBulkBankBar(){
-  const n=$$('.bank-bulk-check:checked').length,el=$('#bulkBankCount');
+  syncBankSelectionFromDOM();const n=bankSelectedIds.size,el=$('#bulkBankCount');
   if(el)el.textContent=`${n} hareket seçili`;
 }
 function selectAllEligibleBankRows(on=true){
-  $$('.bank-bulk-check').forEach(x=>x.checked=!!on);updateBulkBankBar();
+  $('.bank-bulk-check').forEach(x=>{x.checked=!!on;if(on)bankSelectedIds.add(x.dataset.tx);else bankSelectedIds.delete(x.dataset.tx)});updateBulkBankBar();
 }
+function syncBankSelectionFromDOM(){
+  $('.bank-bulk-check').forEach(x=>{if(x.checked)bankSelectedIds.add(x.dataset.tx);else bankSelectedIds.delete(x.dataset.tx)});
+}
+function selectAllFilteredBankRows(){selectAllEligibleBankRows(true);notify('Filtredeki '+$('.bank-bulk-check:checked').length+' işlem seçildi.');}
+
 function bulkAutoAllocateIncome(tx){
-  const u=tx?.suggestedUnitIds?.length===1?tx.suggestedUnitIds[0]:null;
-  if(!tx||!u||tx.matchConfidence!=='high'||Number(tx.amount)<=0||txAllocated(tx.id)>0)return false;
-  let remain=Number(tx.amount),bp=bankProfile(tx.bankId),opens=openChargesForUnit(u,tx.id);
-  for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:c.personId||matchedPersonForTx(tx)||occupantOf(u,tx.date)?.id||ownerOf(u)?.id,amount:a,date:tx.date,description:`${bp.name} toplu otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}
-  if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matchedPersonForTx(tx)||occupantOf(u,tx.date)?.id||ownerOf(u)?.id,amount:remain,date:tx.date,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});
+  const match=effectiveBankMatch(tx),u=match.suggested.length===1?match.suggested[0]:null;
+  if(!tx||!u||!['high','manual'].includes(match.confidence)||Number(tx.amount)<=0||txAllocated(tx.id)>0)return false;
+  let remain=Number(tx.amount),bp=bankProfile(tx.bankId),matched=matchedPersonForTx(tx),opens=matched?openChargesForUnit(u,tx.id).filter(c=>chargeAccountPersonId(c)===matched):[];
+  for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:matched,amount:a,date:tx.date,description:`${bp.name} toplu otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}
+  if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matched,amount:remain,date:tx.date,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});
   tx.allocatedAmount=Number(tx.amount);return true;
 }
 function bulkCreateExpense(tx){
@@ -4473,12 +4501,63 @@ function bulkCreateExpense(tx){
   state.expenses.push(e);tx.expenseId=e.id;return true;
 }
 function processSelectedBankTransactions(){
-  const ids=$$('.bank-bulk-check:checked').map(x=>x.dataset.tx);if(!ids.length){notify('Önce işlenecek hareketleri seç.');return}
+  syncBankSelectionFromDOM();const ids=[...bankSelectedIds];if(!ids.length){notify('Önce işlenecek hareketleri seç.');return}
   let incomeCount=0,expenseCount=0,skipped=0;
   ids.forEach(id=>{const tx=state.bankTransactions.find(x=>x.id===id);if(!tx){skipped++;return}if(Number(tx.amount)>0){if(bulkAutoAllocateIncome(tx))incomeCount++;else skipped++;}else{if(bulkCreateExpense(tx))expenseCount++;else skipped++;}});
-  saveState();logAudit('Toplu banka işlemi',`Tahsilat ${incomeCount} · Gider ${expenseCount} · Atlanan ${skipped}`);render();notify(`${incomeCount} tahsilat ve ${expenseCount} gider işlendi${skipped?` · ${skipped} hareket atlandı`:''}.`);
+  bankSelectedIds.clear();saveState();logAudit('Toplu banka işlemi',`Tahsilat ${incomeCount} · Gider ${expenseCount} · Atlanan ${skipped}`);render();notify(`${incomeCount} tahsilat ve ${expenseCount} gider işlendi${skipped?` · ${skipped} hareket atlandı`:''}.`);
 }
 
+function openBulkUnitAssignment(){
+  syncBankSelectionFromDOM();
+  const ids=[...bankSelectedIds].filter(id=>{
+    const tx=state.bankTransactions.find(t=>t.id===id);
+    return tx&&Number(tx.amount)>0&&txAllocated(id)+0.005<Number(tx.amount);
+  });
+  if(!ids.length)return notify('Önce dağıtılmamış gelen ödemeleri seçin.');
+  const defaultUnit=bankFilterState.unit!=='all'?bankFilterState.unit:'';
+  const options=state.units.map(u=>'<option value="'+u.id+'" '+(u.id===defaultUnit?'selected':'')+'>'+esc(u.label)+'</option>').join('');
+  const total=ids.reduce((a,id)=>{const t=state.bankTransactions.find(x=>x.id===id);return a+Math.max(0,Number(t.amount)-txAllocated(id))},0);
+  openModal('<h2>Seçili Banka Hareketlerini Topluca Daireye Eşleştir</h2>'
+    +'<div class="notice"><b>'+ids.length+' ödeme · '+trMoney(total)+'</b><p>Yalnızca kalan dağıtılmamış tutarlar aktarılır. Önceki dağıtımlar korunur.</p></div>'
+    +'<label>Hedef daire<select id="bulkAssignUnit" onchange="bulkAssignmentPersonOptions()"><option value="">Daire seçin</option>'+options+'</select></label>'
+    +'<label>Ödeme yapılacak kişi<select id="bulkAssignPerson"><option value="">Kişi belirtilmemiş / daireye genel ödeme</option></select></label>'
+    +'<div class="notice warn">Açıklamalardan emin olduğun ödemeleri seç. Kişi seçmezsen ödeme daire genel carisine işlenir, kimseye otomatik aktarılmaz.</div>'
+    +'<div class="actions"><button onclick="closeModal()">Vazgeç</button><button class="primary" onclick="confirmBulkUnitAssignment()">Seçili Ödemeleri Eşleştir</button></div>');
+  bulkAssignmentPersonOptions();
+}
+function bulkAssignmentPersonOptions(){
+  const u=$('#bulkAssignUnit')?.value,el=$('#bulkAssignPerson');if(!el)return;
+  el.innerHTML='<option value="">Kişi belirtilmemiş / daireye genel ödeme</option>'
+    +(u?paymentPersonOptions(u).replace('<option value="">Ödemeyi yapan kişiyi seçin</option>',''):'');
+}
+async function confirmBulkUnitAssignment(){
+  const unitId=$('#bulkAssignUnit')?.value,personId=$('#bulkAssignPerson')?.value||null;
+  if(!unitId||!unit(unitId))return notify('Hedef daire seçin.');
+  const ids=[...bankSelectedIds].filter(id=>{
+    const tx=state.bankTransactions.find(x=>x.id===id);
+    return tx&&Number(tx.amount)>0&&txAllocated(id)+0.005<Number(tx.amount);
+  });
+  if(!ids.length)return notify('Dağıtılmamış ödeme kalmadı.');
+  const sum=ids.reduce((a,id)=>{const t=state.bankTransactions.find(x=>x.id===id);return a+Math.max(0,Number(t.amount)-txAllocated(id))},0);
+  if(!confirm(ids.length+' banka hareketinin kalan '+trMoney(sum)+' tutarı '+unit(unitId).label+' için kaydedilsin mi?'))return;
+  try{
+    const result=await commitSpreadsheetChange(()=>{
+      if(!unit(unitId)||personId&&!state.responsibilities.some(r=>r.unitId===unitId&&r.personId===personId))throw Error('Kişi/daire bağlantısı değişmiş.');
+      let count=0,amount=0;
+      for(const id of ids){
+        const tx=state.bankTransactions.find(x=>x.id===id);if(!tx||Number(tx.amount)<=0)continue;
+        const cents=Math.round((Number(tx.amount)-txAllocated(id))*100);if(cents<=0)continue;
+        const bp=bankProfile(tx.bankId);
+        state.payments.push({id:uid('pay'),periodId:periodIdForDate(tx.date)||tx.periodId||activePeriodId,unitId,personId,amount:cents/100,date:tx.date,
+          description:bp.name+' · toplu daire eşleştirmesi · '+tx.description,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});
+        tx.manualUnitId=unitId;tx.manualPersonId=personId;tx.allocatedAmount=txAllocated(id);
+        count++;amount+=cents/100;
+      }
+      return {changed:count>0,count,amount};
+    },'Banka hareketleri topluca daireye eşleştirildi',x=>unit(unitId).label+' · '+x.count+' ödeme · '+trMoney(x.amount));
+    bankSelectedIds.clear();closeModal();render();notify(result.count+' ödeme doğrulandı, tutar '+trMoney(result.amount));
+  }catch(e){notify('Toplu eşleştirme tamamlanamadı: '+e.message)}
+}
 function caretakerHistory(){return shell(`<h2>Daire Geçmişi</h2><div class="muted small">Kat görevlisi bir dairenin geçmiş tüketim, borç ve ödeme akışını görebilir.</div><div class="list" style="margin-top:10px">${state.units.map(u=>`<button class="card" style="text-align:left" onclick="openUnitHistory('${u.id}')"><b>${u.label}</b><div class="small muted">${activeTenant(u.id)?'Kiracı: '+esc(activeTenant(u.id).name):'Malik sorumlu'}</div></button>`).join('')}</div>`,caretakerMainNav());}
 function openUnitHistory(unitId){const u=unit(unitId);const periods=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month));openModal(`<h2>${u.label} Geçmişi</h2><div class="list">${periods.map(p=>{const cs=state.charges.filter(c=>c.periodId===p.id&&c.unitId===unitId),pay=state.payments.filter(x=>x.periodId===p.id&&x.unitId===unitId).reduce((a,x)=>a+x.amount,0),total=cs.reduce((a,c)=>a+c.amount,0),r=state.meterReadings.filter(x=>x.periodId===p.id&&x.unitId===unitId);return `<div class="listitem"><b>${isoMonthLabel(p.month)}</b><div class="small">Soğuk: ${trNum(r.find(x=>x.type==='cold')?.consumption||0,3)} · Sıcak: ${trNum(r.find(x=>x.type==='hot')?.consumption||0,3)} · Gaz: ${p.boilerActive?trNum(r.find(x=>x.type==='gas')?.consumption||0,3):'Kombi kapalı'}</div><div class="small">Tahakkuk ${trMoney(total)} · Ödeme ${trMoney(pay)} · Kalan <b>${trMoney(total-pay)}</b></div></div>`}).join('')}</div>`)}
 
@@ -5001,7 +5080,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
