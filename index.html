@@ -2811,7 +2811,7 @@ function collectArchiveBatch(records){
       });
     }
   }finally{state.periods=savedPeriods;state.meterReadings=savedReadings;}
-  return {debtEntries,debt:debt.accepted,readings,repeated,errors,otherPeriods};
+  return {debtEntries,debt:debt.accepted,readings,repeated,errors,otherPeriods,corrected:debt.corrected};
 }
 function renderArchiveBatchPlan(output,records){
   const plan=collectArchiveBatch(records);
