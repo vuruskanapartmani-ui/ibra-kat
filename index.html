@@ -2788,7 +2788,7 @@ function renderArchivePdfReview(output,context,rows,ready,reset){
     target.scrollIntoView({block:'nearest',behavior:'smooth'});
   };
   output.oninput=event=>{
-    if(event.target.closest('tbody')||event.target.matches('[type=checkbox]')){
+    if(event.target.closest('.archiveReviewTable tbody')||event.target.matches('[data-omit-gas],[data-use-components]')){
       reset();
       output.querySelector('[data-plan]').replaceChildren();
       output.querySelector('[data-review-errors]').replaceChildren();
@@ -2797,7 +2797,7 @@ function renderArchivePdfReview(output,context,rows,ready,reset){
     }
   };
   output.querySelector('[data-review]').addEventListener('click',()=>{
-    const fields=Array.from(output.querySelectorAll('tbody tr'),tr=>Array.from(tr.querySelectorAll('input')));
+    const fields=Array.from(output.querySelectorAll('.archiveReviewTable tbody tr'),tr=>Array.from(tr.querySelectorAll('input')));
     const values=fields.map(row=>row.map(input=>input.value.trim()));
     const opts={...context,omitGas:!!output.querySelector('[data-omit-gas]')?.checked};
     const issues=[];let firstBad=null;
