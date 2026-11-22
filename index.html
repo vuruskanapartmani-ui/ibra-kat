@@ -2816,7 +2816,9 @@ function collectArchiveBatch(records){
 function renderArchiveBatchPlan(output,records){
   const plan=collectArchiveBatch(records);
   const amounts=plan.debt.reduce((sum,e)=>sum+debtCents(e.amount),0);
-  output.innerHTML='<h3>Aktarım önizlemesi</h3><p>'+plan.debt.length+' aktarılacak borç kalemi · '+plan.readings.length+
+  output.innerHTML='<h3>Aktarım önizlemesi</h3>'+
+    (CONFIG.mode!=='supabase'?'<div class="notice danger"><b>Yerel Test modu:</b> Bu oturumda yapılan değişiklikler yalnızca bu tarayıcıda saklanır. Supabase ve Google Drive yedeğine aktarılmış sayılmaz.</div>':'')+
+    '<p>'+plan.debt.length+' aktarılacak borç kalemi · '+plan.readings.length+
     ' yeni sayaç · '+plan.repeated+' değişmeyecek mevcut kayıt · '+trMoney2(amounts/100)+'</p>'+
     (plan.corrected?'<div class="notice warn"><b>'+plan.corrected+' eski hatalı kayıt düzeltilecek.</b> Yeni bir borç eklemek yerine önceki yanlış tutar değiştirilecek. Ödemeyle bağlantılı veya PDF dışından oluşturulan kayıtlar otomatik düzeltilemez.</div>':'')+
     (plan.otherPeriods?'<p class="small">'+plan.otherPeriods+' borç kalemi başka döneme ait.</p>':'')+
@@ -2830,7 +2832,7 @@ function renderArchiveBatchPlan(output,records){
     '<div data-batch-error role="alert" class="danger"></div>'+
     (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<div data-archive-action class="archiveCommitDock">'+
       (plan.corrected?'<label class="archiveCorrectionCheck"><input type="checkbox" data-correction-approval> Yukarıdaki '+plan.corrected+' eski kaydın, PDF’deki doğru tutarlarla değiştirilmesini onaylıyorum.</label>':'')+
-      '<button type="button" class="primary" data-batch-commit '+(plan.corrected?'disabled':'')+'>Onayla ve sisteme aktar</button></div>':'');
+      '<button type="button" class="primary" data-batch-commit '+(plan.corrected?'disabled':'')+'>'+ (CONFIG.mode==='supabase'?'Onayla ve sisteme aktar':'Onayla ve bu tarayıcıya kaydet')+'</button></div>':'');
   // Compact readable preview: one row per unit, detailed person splits remain editable on demand.
   const summaries=new Map();
   const addSummary=(unitId,label,month,amount,kind)=>{
@@ -2881,7 +2883,7 @@ function renderArchiveBatchPlan(output,records){
         const meters=applyArchiveReadings(current.readings);
         return {added,meters,changed:added+meters>0};
       },'Geçmiş dönem toplu aktarımı',r=>r.added+' borç kalemi · '+r.meters+' sayaç');
-      closeModal();render();notify(result.added+' borç kalemi · '+result.meters+' sayaç işlendi.');
+      closeModal();render();notify(result.added+' borç kalemi · '+result.meters+' sayaç '+(CONFIG.mode==='supabase'?'buluta kaydedildi.':'yalnızca bu tarayıcıya kaydedildi; buluta aktarılmadı.'));
     }catch(e){error.textContent=e.message;button.disabled=false;}
   });
 }
@@ -3016,7 +3018,7 @@ function renderArchivePdfReview(output,context,rows,ready,reset){
       const action=target.querySelector('[data-batch-commit]');
       target.insertAdjacentHTML('afterbegin',notes);
       if(action){
-        action.textContent='Son adım: Kontrol et ve sisteme kaydet';
+        action.textContent=CONFIG.mode==='supabase'?'Son adım: Kontrol et ve sisteme kaydet':'Son adım: Bu tarayıcıya kaydet (yerel test)';
         target.insertAdjacentHTML('afterbegin','<div class="notice ok" style="margin-top:12px"><b>Önizleme hazır.</b> Henüz veri kaydedilmedi.</div>');
       }else target.insertAdjacentHTML('afterbegin','<div class="notice warn">Kayda hazır yeni hareket bulunmuyor veya aşağıda hata var.</div>');
       target.scrollIntoView({block:'start',behavior:'smooth'});
