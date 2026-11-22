@@ -308,6 +308,26 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
   .monthlyPaymentReport table,.unitMonthlyReport table{font-size:11px}
 }
 
+
+/* V1.31: Direct PDF review -> preview -> final commit */
+.archiveReviewHeading{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:12px 0 8px}
+.archiveReviewHeading h3{margin:0 0 5px}
+.archiveReviewTable table{width:100%;table-layout:fixed}
+.archiveReviewTable th,.archiveReviewTable td{padding:5px 3px!important}
+.archiveReviewTable td input{width:100%;min-width:0!important;min-height:34px;margin:0;padding:5px!important;font-variant-numeric:tabular-nums}
+.archiveReviewOption{display:flex;align-items:center;gap:9px;margin:10px 0;line-height:1.35}
+.archiveReviewOption input{flex:none}
+.archiveReviewActions{position:sticky;bottom:0;z-index:8;display:flex;align-items:center;gap:13px;flex-wrap:wrap;padding:10px;background:rgba(255,255,255,.96);border-top:1px solid var(--line);margin-top:9px}
+.archiveReviewActions button{min-height:40px}
+.archiveCellError{border:2px solid #b42318!important;background:#fff0ee!important}
+.archiveReviewHeading .pill{white-space:nowrap}
+.archiveReviewTable tbody tr:nth-child(even){background:#f5f8fc}
+.archiveReviewTable tbody tr:hover{background:#eaf4ff}
+.archiveReviewTable thead th{position:sticky;top:0;z-index:2;background:#eaf0f8}
+[data-plan]>h3{margin-top:15px}
+[data-plan] [data-batch-commit]{margin:14px 0;min-width:min(100%,300px)}
+@media(max-width:650px){.archiveReviewHeading{align-items:flex-start;flex-direction:column}.archiveReviewActions{align-items:stretch;flex-direction:column}.archiveReviewActions button{width:100%}}
+
 </style>
   <title>IBRA KAT</title>
 </head>
@@ -328,7 +348,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.30';
+const APP_VERSION = 'V1.31';
 const APP_VERSION_DATE = '22.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2741,39 +2761,90 @@ function renderArchiveBatchPlan(output,records){
 }
 function renderArchivePdfReview(output,context,rows,ready,reset){
   const columns=[...archiveColumns[context.mode],...(context.mode==='debt'?['PDF aylık toplamı']:[])];
-  output.innerHTML='<h3>PDF değerlerini kontrol edin</h3><p class="small muted">Daire numaralarını ve rakamları belgeden doğrulayın. Okunamayan veya hatalı hücreleri düzeltin.</p>'+
-    '<div class="tableWrap"><table><thead><tr>'+columns.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
-    rows.map((row,i)=>'<tr>'+columns.map((col,j)=>'<td><input style="min-width:90px" aria-label="'+col+' · '+(i+1)+'" value="'+esc(row[j]||'')+'"></td>').join('')+'</tr>').join('')+
+  const task='pdf-direct-preview';
+  const columnCount=columns.length;
+  output.innerHTML='<div class="archiveReviewHeading"><div><h3>2. PDF değerlerini düzelt ve önizle</h3>'+
+    '<p class="small muted">Hücreleri düzelt; ardından hemen alttaki <b>Aktarım önizlemesini göster</b> düğmesine bas. Başka bölüme gitmene gerek yok.</p></div>'+
+    '<span class="pill warn" data-review-state>Kontrol bekliyor</span></div>'+
+    '<div class="tableWrap archiveReviewTable"><table><thead><tr>'+columns.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map((row,i)=>'<tr>'+columns.map((col,j)=>'<td><input aria-label="'+esc((i+1)+'. satır · '+col)+'" data-row="'+i+'" data-col="'+j+'" value="'+esc(row[j]??'')+'"></td>').join('')+'</tr>').join('')+
     '</tbody></table></div>'+
-    (context.mode==='meter'?'<label class="switch"><input style="width:auto;min-height:0" type="checkbox" data-omit-gas> Gaz alanlarını bu aktarımda işleme</label>':
-      '<label class="switch"><input style="width:auto;min-height:0" type="checkbox" data-use-components> PDF’deki kalemleri doğruladım, fark varsa kuruşlu kalemleri esas al</label>')+
-    '<button type="button" data-review>Kontrol ettim, eşleştirmeyi göster</button><div data-plan></div>';
+    (context.mode==='meter'?'<label class="switch archiveReviewOption"><input style="width:auto;min-height:0" type="checkbox" data-omit-gas> Gaz alanlarını bu aktarımda işleme</label>':
+      '<label class="switch archiveReviewOption"><input style="width:auto;min-height:0" type="checkbox" data-use-components> PDF aylık toplamı farklıysa doğruladığım borç kalemlerini esas al</label>')+
+    '<div class="archiveReviewActions"><button type="button" class="primary" data-review>Aktarım önizlemesini göster</button>'+
+    '<span class="small muted">Önizleme ve sisteme yükleme aynı ekranda açılır.</span></div>'+
+    '<div data-review-errors role="alert" aria-live="polite"></div><div data-plan id="'+task+'" aria-live="polite"></div>';
+  const updateState=(message,klass)=>{
+    const node=output.querySelector('[data-review-state]');
+    node.textContent=message;node.className='pill '+klass;
+  };
+  const showError=(messages,cell)=>{
+    const target=output.querySelector('[data-review-errors]');
+    target.innerHTML='<div class="notice danger" style="margin-top:9px"><b>Önizleme açılamadı. Şunları düzeltin:</b><ul>'+
+      messages.slice(0,12).map(m=>'<li>'+esc(m)+'</li>').join('')+
+      (messages.length>12?'<li>Ve '+(messages.length-12)+' ek hata</li>':'')+'</ul></div>';
+    updateState(messages.length+' kontrol hatası','danger');
+    if(cell){cell.classList.add('archiveCellError');cell.focus({preventScroll:true});}
+    target.scrollIntoView({block:'nearest',behavior:'smooth'});
+  };
   output.oninput=event=>{
-    if(event.target.closest('tbody')||event.target.matches('[type=checkbox]')){reset();output.querySelector('[data-plan]').replaceChildren();}
+    if(event.target.closest('tbody')||event.target.matches('[type=checkbox]')){
+      reset();
+      output.querySelector('[data-plan]').replaceChildren();
+      output.querySelector('[data-review-errors]').replaceChildren();
+      output.querySelectorAll('.archiveCellError').forEach(x=>x.classList.remove('archiveCellError'));
+      updateState('Değiştirildi · yeniden önizle','warn');
+    }
   };
   output.querySelector('[data-review]').addEventListener('click',()=>{
-    const values=Array.from(output.querySelectorAll('tbody tr'),tr=>Array.from(tr.querySelectorAll('input'),input=>input.value.trim()));
+    const fields=Array.from(output.querySelectorAll('tbody tr'),tr=>Array.from(tr.querySelectorAll('input')));
+    const values=fields.map(row=>row.map(input=>input.value.trim()));
+    const opts={...context,omitGas:!!output.querySelector('[data-omit-gas]')?.checked};
+    const issues=[];let firstBad=null;
+    output.querySelector('[data-review-errors]').replaceChildren();
+    output.querySelector('[data-plan]').replaceChildren();
+    output.querySelectorAll('.archiveCellError').forEach(x=>x.classList.remove('archiveCellError'));
+    if(!values.length)issues.push('PDF içinde aktarılacak daire satırı bulunamadı.');
+    const seen=new Set();
+    for(let i=0;i<values.length;i++){
+      const row=values[i],u=debtUnit(row[0]);
+      if(!u||seen.has(u.id)){
+        issues.push((i+1)+'. satır · Daire No: '+(!u?'geçersiz veya boş':'mükerrer daire'));
+        firstBad||=fields[i][0];
+      }
+      if(u)seen.add(u.id);
+      for(let j=1;j<columnCount;j++){
+        if(opts.omitGas&&opts.mode==='meter'&&j>=5)continue;
+        if(spreadsheetAmount(row[j])===null){
+          issues.push((i+1)+'. satır · '+columns[j]+': geçerli sayı girilmeli');
+          firstBad||=fields[i][j];
+        }
+      }
+    }
+    if(issues.length){showError(issues,firstBad);return;}
+    if(opts.mode==='debt'){
+      const diffs=values.map((row,i)=>({i,unit:row[0],difference:row.slice(1,6).reduce((sum,v)=>sum+spreadsheetAmount(v),0)-spreadsheetAmount(row[6])}));
+      const mismatched=diffs.filter(x=>Math.abs(x.difference)>0.005);
+      if(mismatched.length&&!output.querySelector('[data-use-components]').checked){
+        showError(mismatched.map(x=>x.unit+' · PDF toplamı ile borç kalemleri arasında '+trMoney2(Math.abs(x.difference))+' fark var. Tutarları düzeltin veya PDF’yi kontrol ettiyseniz onay kutusunu işaretleyin.'),fields[mismatched[0].i][6]);
+        return;
+      }
+    }
+    const sheets=[[columns,...values]];
+    ready(opts,sheets);
+    updateState('Kontrol tamam · önizleme hazır','ok');
     const target=output.querySelector('[data-plan]');
-    const options={...context,omitGas:!!output.querySelector('[data-omit-gas]')?.checked};
-    if(!values.length||values.some(row=>!debtUnit(row[0]))||new Set(values.map(row=>debtUnit(row[0]).id)).size!==values.length){
-      target.textContent='PDF’de daire numarası eksik, geçersiz veya mükerrer. Satırları düzeltin.';return;
-    }
-    if(values.some(row=>row.slice(1,options.omitGas?5:undefined).some(value=>spreadsheetAmount(value)===null))){
-      target.textContent='PDF’de boş veya hatalı rakam var. Kaynaktan doğrulayarak düzeltin.';return;
-    }
-    if(context.mode==='debt'){
-      const differences=values.map(row=>({unit:row[0],difference:row.slice(1,6).reduce((sum,v)=>sum+spreadsheetAmount(v),0)-spreadsheetAmount(row[6])}));
-      const large=differences.filter(x=>Math.abs(x.difference)>=1);
-      const useComponents=output.querySelector('[data-use-components]').checked;
-      if(large.length&&!useComponents){
-        target.innerHTML='<p class="danger">Aşağıdaki dairelerde fark en az 1 TL. PDF yanlış okunduysa ilgili hücreleri düzeltin. PDF’deki kalemler doğruysa onay kutusunu işaretleyin.</p>'+
-          large.map(x=>'<p>'+esc(x.unit)+' · '+trMoney2(x.difference)+'</p>').join('');return;
+    try{
+      renderArchiveBatchPlan(target,[{context:opts,sheets}]);
+      const commit=target.querySelector('[data-batch-commit]');
+      if(commit){
+        commit.textContent='3. Onayla ve sisteme aktar';
+        target.insertAdjacentHTML('afterbegin','<div class="notice ok" style="margin-top:12px"><b>Önizleme hazır.</b> Aşağıdaki borç ve sayaç kayıtlarını kontrol edin. En alttaki onay düğmesiyle sisteme kaydedin; henüz hiçbir veri aktarılmadı.</div>');
+      }else{
+        target.insertAdjacentHTML('afterbegin','<div class="notice warn" style="margin-top:12px">Yeni aktarılabilir kayıt bulunamadı veya aşağıdaki kontrol hataları devam ediyor. Kayıtlar değiştirilmedi.</div>');
       }
-      if(differences.some(x=>Math.abs(x.difference)>0.005)&&!useComponents){
-        target.textContent='PDF’nin aylık toplamı ile kalemler farklı. Kalemleri kontrol edip kullanılacak tutarı onaylayın.';return;
-      }
-    }
-    ready(options,[[columns,...values]]);target.textContent='PDF hazır. Kaydetmek için aşağıdan “Tüm kayıtları birlikte önizle”, ardından “Onayla ve sisteme yükle” düğmesine basın.';
+      target.scrollIntoView({block:'start',behavior:'smooth'});
+    }catch(error){showError([error.message||'Önizleme hazırlanamadı.'],null);}
   });
 }
 const FORM_METER_LABELS={cold:'Soğuk su',hot:'Sıcak su',gas:'Doğalgaz'};
