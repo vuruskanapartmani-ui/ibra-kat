@@ -2164,7 +2164,7 @@ function parseHistoricalDebtSheet(sheets,fallbackMonth,fallbackDue){
       for(const [type,value] of amounts){
         if(!String(value??'').trim())continue;
         const number=spreadsheetAmount(value);
-        if(!type||number===null||number<0){errors.push(label+' · borç kalemi veya tutar geçersiz.');continue;}
+        if(!type||number===null||(number<0&&type!=='rounding_adjustment')){errors.push(label+' · borç kalemi veya tutar geçersiz.');continue;}
         if(number===0)continue;
         entries.push({unit:u,month,due,type,amount:Math.round(number*100)/100,personId:debtPersonForMonth(u.id,month),label,note:String(row[ni]??'')});
       }
@@ -2526,7 +2526,7 @@ function debtSplitRow(e,personId='',amount=''){
   const seen=new Set();
   const dropdown=options.filter(o=>!seen.has(o.id)&&seen.add(o.id)).map(o=>'<option value="'+esc(o.id)+'"'+(o.id===personId?' selected':'')+'>'+esc((o.relevant?'':'Diğer dönem · ')+o.label)+'</option>').join('');
   return '<div class="actions" data-split><label>Sorumlu<select data-person><option value="">Daire hesabı</option>'+dropdown+'</select></label>'+
-    '<label>Tutar (TL)<input data-amount type="number" min="0.01" step="0.01" value="'+esc(amount)+'"></label>'+
+    '<label>Tutar (TL)<input data-amount type="number" min="'+(e.type==='rounding_adjustment'?'-0.99':'0.01')+'" step="0.01" value="'+esc(amount)+'"></label>'+
     '<button type="button" data-remove>Payı kaldır</button></div>';
 }
 function bindDebtSplits(root,entries){
@@ -2537,7 +2537,7 @@ function bindDebtSplits(root,entries){
     el.querySelector('[data-add]').addEventListener('click',()=>{
       const assigned=[...parts.querySelectorAll('[data-amount]')].reduce((n,input)=>n+debtCents(input.value),0);
       const remainder=debtCents(e.amount)-assigned;
-      parts.insertAdjacentHTML('beforeend',debtSplitRow(e,'',remainder>0?(remainder/100).toFixed(2):''));
+      parts.insertAdjacentHTML('beforeend',debtSplitRow(e,'',remainder!==0?(remainder/100).toFixed(2):''));
     });
     parts.addEventListener('click',event=>{
       const remove=event.target.closest('[data-remove]');
@@ -2553,7 +2553,7 @@ function readDebtSplits(root,entries){
       amount:Number(part.querySelector('[data-amount]').value),
     }));
     const allowed=new Set(debtResponsibilityOptions(e.unit.id,e.month).map(o=>o.id));
-    if(shares.some(p=>!Number.isFinite(p.amount)||p.amount<=0||Math.abs(p.amount*100-debtCents(p.amount))>1e-6||(p.personId&&!allowed.has(p.personId)))||
+    if(shares.some(p=>!Number.isFinite(p.amount)||(e.type==='rounding_adjustment'?p.amount===0:p.amount<=0)||Math.abs(p.amount*100-debtCents(p.amount))>1e-6||(p.personId&&!allowed.has(p.personId)))||
        new Set(shares.map(p=>p.personId)).size!==shares.length||shares.reduce((sum,p)=>sum+debtCents(p.amount),0)!==debtCents(e.amount)){
       el.open=true;el.scrollIntoView({block:'center'});
       throw new Error(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+': kişi başına tek pay girin. Paylar '+trMoney2(e.amount)+' etmeli.');
