@@ -2136,7 +2136,7 @@ function debtSplitPeriodOptions(unitId){
 }
 function debtSplitPersonOptions(unitId){
   const shown=new Set();
-  return unitRelationships(unitId).filter(x=>{if(shown.has(x.p.id))return false;shown.add(x.p.id);return true})
+  return unitRelationships(unitId).sort((a,b)=>Number(a.r.active)-Number(b.r.active)||String(a.r.startDate||'').localeCompare(String(b.r.startDate||''))).filter(x=>{if(shown.has(x.p.id))return false;shown.add(x.p.id);return true})
     .map(x=>'<option value="'+esc(x.p.id)+'">'+esc(x.p.name)+' ('+(x.r.active?'Aktif':'Eski')+')</option>').join('');
 }
 function splitPeriodCharges(unitId,periodId){
@@ -4512,6 +4512,9 @@ function unitConsumption(u){return `<h2>Tüketim Geçmişi</h2><div class="list"
 function calculatePeriod(periodId){
   const p=state.periods.find(x=>x.id===periodId);
   if(!p)return;
+  if(state.charges.some(c=>c.periodId===periodId&&c.splitBatchId)){
+    notify('Bu dönemde kişilere paylaştırılmış borçlar var. Yeniden hesaplama onları değiştirebilir; işlem durduruldu.');return;
+  }
   if(state.meterReadings.some(r=>r.periodId===p.id&&r.source==='google_form')){
     if(!formCalculationReady(p))return;
     closeModal();
