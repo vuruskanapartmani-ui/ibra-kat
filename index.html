@@ -384,7 +384,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.40';
+const APP_VERSION = 'V1.41';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -413,8 +413,13 @@ let remotePendingState=null;
 let revisionPollHandle=null;
 let revisionPollBusy=false;
 function stableSnapshot(x){
-  if(Array.isArray(x))return '['+x.map(stableSnapshot).join(',')+']';
-  if(x&&typeof x==='object')return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stableSnapshot(x[k])).join(',')+'}';
+  // JSON transport removes undefined object values, converts non-finite numbers to null,
+  // and normalizes sparse arrays; compare the actual wire representation.
+  return stableJsonValue(JSON.parse(JSON.stringify(x)));
+}
+function stableJsonValue(x){
+  if(Array.isArray(x))return '['+x.map(stableJsonValue).join(',')+']';
+  if(x&&typeof x==='object')return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stableJsonValue(x[k])).join(',')+'}';
   return JSON.stringify(x);
 }
 function persistPendingSnapshot(){
@@ -616,6 +621,57 @@ function exportPendingRemoteJson(){
   if(!remotePendingState)return notify('Ayrı sunucu kopyası yok.');
   downloadData(JSON.stringify({exported_at:new Date().toISOString(),building_id:CONFIG.buildingId,data:remotePendingState},null,2),'IBRAKAT-sunucu-karsilastirma-'+new Date().toISOString().slice(0,10)+'.json');
 }
+async function retryPendingImport(){
+  if(session?.role!=='manager')return notify('Bu işlem yalnızca yönetici tarafından yapılabilir.');
+  const metaRaw=localStorage.getItem(PENDING_SYNC_KEY);
+  const raw=localStorage.getItem(STORE_KEY);
+  if(!metaRaw||!raw)return notify('Bekleyen aktarım kaydı bulunamadı.');
+  if(cloudSavePromise||cloudSaveRunning||spreadsheetCommitPending)return notify('Başka bir kayıt işlemi devam ediyor.');
+  let pending,localData;
+  try{pending=JSON.parse(metaRaw);localData=JSON.parse(raw)}catch(e){return notify('Bekleyen veri okunamıyor. JSON dosyasını indirin.');}
+  if(!Array.isArray(localData?.units)||localData.units.length<30)return notify('Bekleyen verinin bütünlüğü doğrulanamadı.');
+  try{
+    const remote=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
+    if(!remote?.state)return notify('Sunucudaki kayıt okunamadı.');
+    if(stableSnapshot(remote.state)===stableSnapshot(localData)){
+      state=normalizeState(remote.state);
+      cloudRevision=remote.updated_at;cloudLoaded=true;syncBlocked=false;localRecoveryAvailable=false;remotePendingState=null;
+      localStorage.setItem(STORE_KEY,JSON.stringify(state));
+      localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
+      localStorage.removeItem(PENDING_SYNC_KEY);
+      setSyncStatus('Doğrulandı · '+new Date().toLocaleTimeString('tr-TR'));
+      closeModal();render();notify('Bekleyen aktarımın sunucuda zaten bulunduğu doğrulandı.');
+      return;
+    }
+    if(remote.updated_at!==pending.base_revision){
+      syncBlocked=true;remotePendingState=remote.state;localRecoveryAvailable=true;
+      setSyncStatus('Çakışma: sunucu değişmiş');
+      notify('Bu işlem başlatıldıktan sonra sunucu değişmiş. Otomatik aktarım durduruldu; iki kopyayı karşılaştırın.');
+      return;
+    }
+    if((localData.bankTransactions||[]).length<(remote.state.bankTransactions||[]).length||
+       (localData.payments||[]).length<(remote.state.payments||[]).length){
+      notify('Bekleyen kopyada banka hareketi veya ödeme kaybı tespit edildi. Aktarım yapılmadı.');
+      return;
+    }
+    const summary='Yerel: '+syncCount(localData)+'\\nSunucu: '+syncCount(remote.state);
+    if(!confirm('Bekleyen yerel çalışmaları sunucuya yazmak istiyor musunuz? Önce Yerel JSON İndir ile yedek alın.\\n'+summary))return;
+    const saved=await authCall('staff_save_state',{building_id:CONFIG.buildingId,payload:JSON.parse(JSON.stringify(localData)),expected_updated_at:remote.updated_at},true);
+    const verified=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
+    if(verified.updated_at!==saved.updated_at||stableSnapshot(verified.state)!==stableSnapshot(localData))
+      throw new Error('Sunucudan geri okuma eşleşmedi. Tarayıcı verisi korundu.');
+    state=normalizeState(verified.state);cloudRevision=verified.updated_at;cloudLoaded=true;syncBlocked=false;localRecoveryAvailable=false;remotePendingState=null;
+    localStorage.setItem(STORE_KEY,JSON.stringify(state));
+    localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
+    localStorage.removeItem(PENDING_SYNC_KEY);localStorage.removeItem(LOCAL_SAVE_VERSION_KEY);
+    setSyncStatus('Doğrulandı · '+new Date().toLocaleTimeString('tr-TR'));
+    closeModal();render();notify('Bekleyen aktarım Supabase\'e kaydedildi ve geri okunarak doğrulandı.');
+  }catch(e){
+    console.warn('Bekleyen aktarım hatası',e);
+    setSyncStatus('Aktarım doğrulanamadı — yerel veri korundu');
+    notify('Aktarım tamamlanamadı: '+e.message);
+  }
+}
 function openRecoverySync(){
   const pendingRaw=localStorage.getItem(PENDING_SYNC_KEY);
   const backupRaw=localStorage.getItem(RECOVERY_KEY);
@@ -629,7 +685,7 @@ function openRecoverySync(){
     +'<p class="small"><b>Sunucu:</b> '+esc(syncCount(remote))+'</p>'
     +'<div class="actions"><button onclick="exportRecoveryJson()">Yerel JSON İndir</button><button onclick="'+(remotePendingState?'exportPendingRemoteJson()':'exportCurrentJson()')+'">Sunucu JSON İndir</button></div>'
     +'<div class="notice danger" style="margin-top:10px">Önce iki JSON dosyasını karşılaştırın. Onaylanan aktarım tüm sunucu verisinin yerini alır.</div>'
-    +'<div class="actions" style="margin-top:12px"><button onclick="closeModal()">Vazgeç</button><button class="dangerBtn" onclick="uploadRecoveredLocal()">Yerel Kopyayı Sunucuya Aktar</button></div>');
+    +'<div class="actions" style="margin-top:12px"><button onclick="closeModal()">Vazgeç</button>'+(pendingRaw?'<button onclick="retryPendingImport()">Bekleyen Aktarımı Güvenle Tamamla</button>':'<button class="dangerBtn" onclick="uploadRecoveredLocal()">Yerel Kopyayı Sunucuya Aktar</button>')+'</div>');
 }
 async function uploadRecoveredLocal(){
   if(session?.role!=='manager'){notify('Yalnızca yönetici aktarabilir.');return}
@@ -850,10 +906,12 @@ async function commitSpreadsheetChange(change,action,detail){
   const online=!!(authSession&&CONFIG.mode==='supabase');
   spreadsheetCommitPending=true;
   try{
-    let working;
+    let working,sourceRevision=cloudRevision;
     if(online){
       const data=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
       if(!data?.state||session!==staffSession||cloudTimer||cloudSaveRunning)throw new Error('Güncel kayıtlar doğrulanamadı. Sayfayı yenileyip tekrar deneyin.');
+      if(data.updated_at!==cloudRevision)throw new Error('Sunucuda daha güncel veri var. Önce diğer cihazdaki değişiklikleri kontrol edin.');
+      sourceRevision=data.updated_at;
       working=normalizeState(data.state);
     }else{
       working=JSON.parse(JSON.stringify(previous));
@@ -872,9 +930,9 @@ async function commitSpreadsheetChange(change,action,detail){
     }
     if(online&&result.changed){
       localStorage.setItem(STORE_KEY,JSON.stringify(working));
-      localStorage.setItem(PENDING_SYNC_KEY,JSON.stringify({at:new Date().toISOString(),base_revision:cloudRevision,dirty:true}));
+      localStorage.setItem(PENDING_SYNC_KEY,JSON.stringify({at:new Date().toISOString(),base_revision:sourceRevision,dirty:true}));
       if(!cloudLoaded||syncBlocked)throw new Error('Senkronizasyon doğrulanamadı. Önce senkronizasyon sorununu çözün.');
-      const response=await authCall('staff_save_state',{building_id:CONFIG.buildingId,payload:working,expected_updated_at:cloudRevision},true);
+      const response=await authCall('staff_save_state',{building_id:CONFIG.buildingId,payload:JSON.parse(JSON.stringify(working)),expected_updated_at:sourceRevision},true);
       const verify=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
       if(verify.updated_at!==response.updated_at||stableSnapshot(verify.state)!==stableSnapshot(working))throw new Error('Yazım sonrası sunucu verisi doğrulanamadı.');
       cloudRevision=response.updated_at;
@@ -4476,7 +4534,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
