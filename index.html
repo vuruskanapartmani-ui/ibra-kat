@@ -435,7 +435,9 @@ function retainPendingForRecovery(){
 }
 async function checkOtherDeviceUpdates(){
   if(revisionPollBusy||!session||!['manager','caretaker'].includes(session.role)||!authSession||!cloudLoaded||syncBlocked||localRecoveryAvailable||cloudSaveRunning||cloudSavePromise||cloudTimer||localStorage.getItem(PENDING_SYNC_KEY))return;
-  if(document.visibilityState==='hidden')return;
+  if(document.visibilityState==='hidden'||spreadsheetCommitPending)return;
+  const focused=document.activeElement;
+  if(focused&&(/^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName)||focused.isContentEditable))return;
   revisionPollBusy=true;
   try{
     const probe=await authCall('staff_get_revision',{building_id:CONFIG.buildingId},true);
