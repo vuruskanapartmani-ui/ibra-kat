@@ -375,7 +375,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.32';
+const APP_VERSION = 'V1.33';
 const APP_VERSION_DATE = '22.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2252,6 +2252,21 @@ function nativeArchivePageRows(page,textContent,mode,xs,ys,viewport){
   return rows;
 }
 
+function archiveNormalizeOcrCell(value,mode,column){
+  let str=String(value??'').trim().replace(/[₺\s]/g,'').replace(/[−–]/g,'-');
+  str=str.replace(/^[^\d-]+|[^\d.,]+$/g,'');
+  if(!str)return '';
+  // These particular monthly templates print fixed decimals in the source.
+  // Recover an omitted comma only where the source column has a fixed scale.
+  if(mode==='debt'&&/^\d+$/.test(str)){
+    const places=column===1||column===4?2:column===2?1:0;
+    if(places&&str.length>places){
+      str=str.slice(0,-places)+','+str.slice(-places);
+    }
+  }
+  return str;
+}
+
 async function pdfArchiveTables(file,mode,progress){
   const base='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/';
   const pdfjs=await import(base+'pdf.mjs');
@@ -2309,21 +2324,10 @@ async function pdfArchiveTables(file,mode,progress){
         const ctx=strip.getContext('2d');
         ctx.fillStyle='#fff';ctx.fillRect(0,0,strip.width,strip.height);
         for(const [i,[top,bottom]] of rows.entries()){
-          let left=xs[col]+7;
+          // Keep the full value: the previous currency-symbol trimming could remove
+          // the hundreds digit (e.g. 430,02 became 30,02).
+          const left=xs[col]+7;
           const right=xs[col+1]-7,height=bottom-top-12;
-          if(mode==='debt'&&col!==0){
-            const span=right-left;
-            const rgba=pageCtx.getImageData(left,top+6,span,height).data;
-            const glyph=Array.from({length:span},(_,x)=>{
-              for(let y=0;y<height;y++){
-                const p=4*(y*span+x);
-                if(rgba[p]+rgba[p+1]+rgba[p+2]<315)return true;
-              }
-              return false;
-            });
-            const start=glyph.indexOf(true), end=glyph.indexOf(false,start+1);
-            if(start>=0&&end>start&&end-start<=35&&glyph.slice(end).some(Boolean))left+=end;
-          }
           ctx.drawImage(pageImage,left,top+6,right-left,height,10,i*stride+12,right-left,48);
         }
         const {data}=await worker.recognize(strip);
@@ -2338,7 +2342,8 @@ async function pdfArchiveTables(file,mode,progress){
       const headerBands=mode==='debt'?0:1;
       const extracted=rows.slice(headerBands,-1).map((_,i)=>columns.map(column=>column[i+headerBands]));
       if(extracted.every(row=>!row.slice(1).some(Boolean)))throw new Error('PDF sayfa '+pageNo+' okunamadı.');
-      result.push(...extracted.map(row=>[row[0]?('D'+row[0].padStart(2,'0')):'',...row.slice(1)]));
+      result.push(...extracted.map(row=>[row[0]?('D'+row[0].padStart(2,'0')):'',
+        ...row.slice(1).map((cell,i)=>archiveNormalizeOcrCell(cell,mode,i+1))]));
     }
     return auto?{mode,...metadata,rows:result}:result;
   }finally{
