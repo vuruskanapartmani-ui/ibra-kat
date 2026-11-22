@@ -384,7 +384,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.41';
+const APP_VERSION = 'V1.42';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -1603,12 +1603,13 @@ async function saveLeaveReview(id,decision){
   try{await authCall('leave_review',{request_id:id,decision,manager_note:$('#leaveManagerNote').value||null},true);closeModal();notify('İzin talebi güncellendi.');route='leaveManagement';render()}catch(e){notify(e.message||'İşlem başarısız.')}
 }
 function caretakerPeriods(){
-  const rows=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month)).map(p=>{
+  const periods=filteredPeriodsDescending();
+  const rows=periods.map(p=>{
     const inv=state.invoices.filter(x=>x.periodId===p.id&&['water','gas','electric'].includes(x.type));
     const complete=['water','gas','electric'].filter(t=>inv.some(x=>x.type===t&&x.status==='approved')).length;
     return `<div class="listitem click" onclick="activePeriodId='${p.id}';route='caretakerPeriodDetail';render()">
       <div class="sectionHead">
-        <div><b>${isoMonthLabel(p.month)}</b>
+        <div><b>${periodListLabel(p.month)}</b>
           <div class="small muted">Son ödeme: ${p.dueDate||'—'} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'} · Aidat ${trMoney(p.dues)}</div>
           <div class="small muted" style="margin-top:4px">Ana faturalar: ${complete}/3 onaylı</div>
         </div>
@@ -1616,7 +1617,7 @@ function caretakerPeriods(){
       </div>
     </div>`;
   }).join('');
-  return shell(`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Sayaçlar ile su, doğalgaz ve elektrik faturaları ilgili ayın içinde tutulur.</div></div><button class="primary" onclick="openCaretakerNewPeriod()">+ Yeni Dönem</button></div><div class="list" style="margin-top:10px">${rows}</div>`,caretakerMainNav());
+  return shell(`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Sayaçlar ile su, doğalgaz ve elektrik faturaları ilgili ayın içinde tutulur.</div></div><button class="primary" onclick="openCaretakerNewPeriod()">+ Yeni Dönem</button></div>${periodListFilterBar()}<div class="muted small" style="margin-top:10px">${periods.length} dönem listeleniyor · En yeni dönem üstte</div><div class="list" style="margin-top:10px">${rows||'<div class="notice">Seçilen filtrelere uygun dönem bulunamadı.</div>'}</div>`,caretakerMainNav());
 }
 function utilityExpenseCategory(type){return type==='water'?'İZSU':type==='gas'?'İzmirgaz':type==='electric'?'Elektrik':'Diğer'}
 function utilityExpenseDescription(type){return type==='water'?'Su Faturası':type==='gas'?'Doğalgaz Faturası':type==='electric'?'Elektrik Faturası':'Fatura'}
@@ -1823,9 +1824,44 @@ function managerHome(){
   ${buildingAccountInfoHTML()}`;
   return shell(c,adminMainNav());
 }
+// Period filters are view-only; no database writes.
+let periodListYear='all';
+let periodListMonth='all';
+const MONTH_LABELS_TR=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+function periodListLabel(month){
+  const match=/^(\d{4})-(\d{2})$/.exec(String(month||''));
+  if(!match)return isoMonthLabel(String(month||''));
+  return match[1]+' '+(MONTH_LABELS_TR[Number(match[2])-1]||match[2]);
+}
+function filteredPeriodsDescending(){
+  return [...state.periods].filter(p=>{
+    const month=String(p.month||'');
+    return (periodListYear==='all'||month.slice(0,4)===periodListYear)
+      &&(periodListMonth==='all'||month.slice(5,7)===periodListMonth);
+  }).sort((a,b)=>String(b.month||'').localeCompare(String(a.month||'')));
+}
+function periodListFilterBar(){
+  const years=[...new Set(state.periods.map(p=>String(p.month||'').slice(0,4)).filter(y=>/^\d{4}$/.test(y)))].sort((a,b)=>b.localeCompare(a));
+  if(periodListYear!=='all'&&!years.includes(periodListYear))periodListYear='all';
+  const yearOptions=['<option value="all">Tüm yıllar</option>',...years.map(y=>'<option value="'+y+'" '+(periodListYear===y?'selected':'')+'>'+y+'</option>')].join('');
+  const months=['<option value="all">Tüm aylar</option>',...MONTH_LABELS_TR.map((name,i)=>{
+    const value=String(i+1).padStart(2,'0');
+    return '<option value="'+value+'" '+(periodListMonth===value?'selected':'')+'>'+name+'</option>';
+  })].join('');
+  return '<div class="card" style="margin-top:10px"><div class="grid2">'
+    +'<label>Yıla göre filtrele<select id="periodListYear" onchange="setPeriodListFilter(\'year\',this.value)">'+yearOptions+'</select></label>'
+    +'<label>Aya göre filtrele<select id="periodListMonth" onchange="setPeriodListFilter(\'month\',this.value)">'+months+'</select></label>'
+    +'</div></div>';
+}
+function setPeriodListFilter(kind,value){
+  if(kind==='year')periodListYear=value;
+  if(kind==='month')periodListMonth=value;
+  render();
+}
 function managerPeriods(){
-  const rows=state.periods.map(p=>{const ex=managerDuesExemptionText(p);return `<div class="listitem"><div class="sectionHead"><div><b>${isoMonthLabel(p.month)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · Aidat ${trMoney(p.dues)} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'}</div><div class="small ${p.managerDuesExemptUnitId?'ok':'muted'}">${ex}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div><div style="margin-top:9px">${p.status!=='locked'?dueDateEditor(p,true):''}</div><div class="actions" style="margin-top:9px"><button onclick="activePeriodId='${p.id}';go('periodDetail')">Aç</button>${p.status!=='locked'?`<button class="primary" onclick="activePeriodId='${p.id}';lockPeriod()">Kesinleştir</button>`:''}</div></div>`}).join('');
-  const c=`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Yeni dönemi yönetici açar.</div></div><button class="primary" onclick="openNewPeriod()">+ Yeni Dönem</button></div><div class="list" style="margin-top:10px">${rows}</div>`;
+  const periods=filteredPeriodsDescending();
+  const rows=periods.map(p=>{const ex=managerDuesExemptionText(p);return `<div class="listitem"><div class="sectionHead"><div><b>${periodListLabel(p.month)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · Aidat ${trMoney(p.dues)} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'}</div><div class="small ${p.managerDuesExemptUnitId?'ok':'muted'}">${ex}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div><div style="margin-top:9px">${p.status!=='locked'?dueDateEditor(p,true):''}</div><div class="actions" style="margin-top:9px"><button onclick="activePeriodId='${p.id}';go('periodDetail')">Aç</button>${p.status!=='locked'?`<button class="primary" onclick="activePeriodId='${p.id}';lockPeriod()">Kesinleştir</button>`:''}</div></div>`}).join('');
+  const c=`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Yeni dönemi yönetici açar.</div></div><button class="primary" onclick="openNewPeriod()">+ Yeni Dönem</button></div>${periodListFilterBar()}<div class="muted small" style="margin-top:10px">${periods.length} dönem listeleniyor · En yeni dönem üstte</div><div class="list" style="margin-top:10px">${rows||'<div class="notice">Seçilen filtrelere uygun dönem bulunamadı.</div>'}</div>`;
   return shell(c,[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'units',ico:'🏠',label:'Bölümler'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}]);
 }
 function openNewPeriod(){
@@ -4534,7 +4570,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
