@@ -340,6 +340,21 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 .archiveLegendEdited{background:#d9f9e5;border:1px solid #248758}
 .archiveLegendWarn{background:#fff0cd;border:1px solid #815007}
 .archiveReviewTable .archiveComputed,.archiveReviewTable .archiveDelta{font-variant-numeric:tabular-nums;white-space:normal;text-align:right}
+
+/* V1.32 compact importer summary and changed field legibility */
+.archiveImportItem{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px}
+.archiveImportItem>div{min-width:0;flex:1}
+.archiveImportItem button{min-height:37px;white-space:nowrap}
+.archiveSummaryTable table{min-width:0!important;width:100%;font-size:12px}
+.archiveSummaryTable th,.archiveSummaryTable td{padding:7px 9px!important}
+.archiveSummaryTable tbody tr:nth-child(even){background:#f3f7fc}
+.archiveSummaryTable .archiveSummaryMoney{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+.archiveSummaryTable tfoot{background:#eaf0f7;font-weight:800}
+.archiveAllocationGroup{border:1px solid #c6d4e2;border-radius:12px;padding:10px;margin:12px 0;background:#f7faff}
+.archiveAllocationGroup>summary{cursor:pointer;padding:8px}
+.archiveAllocationInner{display:grid;gap:6px;margin-top:8px}
+.archiveAllocationInner>details{background:white}
+@media(max-width:760px){.archiveImportItem{flex-direction:column;align-items:stretch}.archiveImportItem button{width:100%}}
 </style>
   <title>IBRA KAT</title>
 </head>
@@ -2457,63 +2472,19 @@ async function readArchivePdfs(files,progress){
   return entries;
 }
 function renderArchivePdfImport(output,entries,scope,edit){
-  const selected=entries.flatMap(e=>e.record&&(!scope||e.record.context.mode===scope)?[e.record]:[]);
-  const {plan,ready,held}=planAutomaticPdfs(selected);
-  const pendingDebts=plan.debt.filter(e=>!e.existingAllocation?.length);
-  const total=pendingDebts.reduce((sum,e)=>sum+debtCents(e.amount),0);
-  const canSave=pendingDebts.length||plan.readings.length;
-  output.innerHTML='<p><b>'+pendingDebts.length+' yeni borç kalemi'+(pendingDebts.length?' · '+trMoney2(total/100):'')+
-    ' · '+plan.readings.length+' yeni sayaç</b></p>'+
-    '<div class="list">'+entries.map(({file,doc,record,error},i)=>{
-      const context=record?.context||doc, excluded=context&&scope&&context.mode!==scope;
-      const problems=excluded?[]:error?[error]:held.get(record)||[];
-      const warnings=excluded?[]:record?.warnings||[];
-      const label=excluded?'Bu seçimde kapsam dışında':problems.length?'Düzeltme gerekli':'Okundu';
-      return '<div class="listitem"><b>'+esc(file.name)+'</b><p class="small">'+label+
-        (context?.month?' · '+esc(isoMonthLabel(context.month)):'')+
-        (context?.due?' · Son ödeme '+esc(context.due.split('-').reverse().join('.')):'')+'</p>'+
-        problems.map(message=>'<div class="small danger">'+esc(message)+'</div>').join('')+
-        (problems.length?'<p class="small">'+esc(archivePdfHelp(problems[0]))+'</p>':'')+
-        warnings.map(message=>'<p class="small warn">'+esc(message)+(/gaz satırı/.test(message)?' '+archivePdfHelp(message):'')+'</p>').join('')+
-        (!excluded?'<button type="button" data-pdf-edit="'+i+'">Belgeyi düzelt</button>':'')+'</div>';
-    }).join('')+'</div>'+
-    '<p class="small">'+(canSave?'Hazır kayıtları aşağıdaki düğmeyle aktarın.':ready.length?'Seçilen PDF’lerde eklenecek yeni kayıt yok.':'Bu seçimde kayda hazır kayıt yok.')+'</p>'+
-    '<button type="button" class="primary" data-pdf-commit'+(canSave?'':' disabled')+'>Sisteme yükle</button> <div data-pdf-save-result role="status"></div>';
+  // No silent one-click commit: review source values, calculated totals and affected records first.
+  const visible=entries.map((e,i)=>({...e,i})).filter(e=>!scope||e.doc?.mode===scope||e.record?.context?.mode===scope);
+  output.innerHTML='<div class="notice" style="margin:10px 0"><b>PDF okuma tamamlandı.</b> Aşağıda her dosyayı <b>Kontrol et ve önizle</b> ile aç. Yanlış rakamları düzeltebilir, yeşil işaretli değişiklikleri görebilirsin. Son onay olmadan hiçbir kayıt aktarılmaz.</div>'+
+    '<div class="list">'+visible.map(({file,doc,record,error,i})=>{
+      const p=record?.context||doc;const mode=p?.mode==='meter'?'Tüketim':'Borç';
+      const note=error?'<div class="small danger">'+esc(error)+'</div>':
+        '<div class="small ok">PDF okundu. Sayıları ve daireleri kontrol edin.</div>';
+      return '<div class="listitem archiveImportItem"><div><b>'+esc(file.name)+'</b><div class="small muted">'+esc(mode)+' · PDF içindeki dönem: '+esc(p?.month?isoMonthLabel(p.month):'Okunamadı')+
+        ' · Son ödeme: '+esc(p?.due||'—')+'</div>'+note+'</div>'+
+        (doc?'<button type="button" class="primary" data-pdf-edit="'+i+'">Kontrol et ve önizle</button>':
+          '<span class="small danger">Belge okunamadı; dosyayı yeniden yükleyin.</span>')+'</div>';
+    }).join('')+'</div>';
   $$('[data-pdf-edit]',output).forEach(button=>button.addEventListener('click',()=>edit(entries[Number(button.dataset.pdfEdit)])));
-  output.querySelector('[data-pdf-commit]').addEventListener('click',async event=>{
-    const button=event.currentTarget, message=output.querySelector('[data-pdf-save-result]');
-    const form=output.closest('form');
-    const controls=[...form.elements].filter(el=>!el.disabled);
-    controls.forEach(el=>el.disabled=true);
-    message.textContent='Kayıtlar doğrulanıyor ve yükleniyor…';
-    let saved=false;
-    try{
-      const result=await commitSpreadsheetChange(()=>{
-        const current=collectArchiveBatch(ready);
-        if(current.errors.length)throw new Error(current.errors[0]+' '+archivePdfHelp(current.errors[0]));
-        const shares=new Map(current.debt.map(e=>[debtAllocationKey(e),e.existingAllocation?.length?e.existingAllocation.map(s=>({
-          personId:s.personId||null,amount:s.amount,
-        })):[{personId:defaultDebtPerson(e)||null,amount:e.amount}]]));
-        const added=applyArchiveDebtSplits(current.debtEntries,shares,current.debt);
-        const meters=applyArchiveReadings(current.readings);
-        return {added,meters,changed:added+meters>0};
-      },'PDF’den geçmiş dönem aktarımı',r=>r.added+' borç kalemi · '+r.meters+' sayaç');
-      saved=true;
-      message.textContent=result.added+' borç kalemi · '+result.meters+' sayaç kaydedildi.';
-      const report=document.createElement('button');
-      report.type='button';report.textContent='Aylık Borç ve Tüketimi Aç';
-      report.onclick=()=>{
-        const latest=ready.map(r=>r.context.month).sort().at(-1);
-        monthlyUnitReportPeriod=state.periods.find(p=>p.month===latest)?.id;
-        monthlyUnitReportMode=result.added?'debt':'meter';
-        closeModal();go('unitMonthly');
-      };
-      message.append(' ',report);
-      if(!period())activePeriodId=state.periods[0]?.id;
-      render();
-    }catch(error){message.textContent=error.message;}
-    finally{controls.forEach(el=>el.disabled=false);button.disabled=saved;}
-  });
 }
 function debtResponsibilityOptions(unitId,month){
   const start=month+'-01', end=monthEnd(month);
@@ -2567,7 +2538,7 @@ function readDebtSplits(root,entries){
     const allowed=new Set(debtResponsibilityOptions(e.unit.id,e.month).map(o=>o.id));
     if(shares.some(p=>!Number.isFinite(p.amount)||(e.type==='rounding_adjustment'?p.amount===0:p.amount<=0)||Math.abs(p.amount*100-debtCents(p.amount))>1e-6||(p.personId&&!allowed.has(p.personId)))||
        new Set(shares.map(p=>p.personId)).size!==shares.length||shares.reduce((sum,p)=>sum+debtCents(p.amount),0)!==debtCents(e.amount)){
-      el.open=true;el.scrollIntoView({block:'center'});
+      el.open=true;el.closest('[data-debt-allocation-list]')?.setAttribute('open','');el.scrollIntoView({block:'center'});
       throw new Error(e.unit.label+' · '+e.month+' · '+HISTORICAL_DEBT_TYPES[e.type]+': kişi başına tek pay girin. Paylar '+trMoney2(e.amount)+' etmeli.');
     }
     selections.set(debtAllocationKey(e),shares);
@@ -2808,6 +2779,31 @@ function renderArchiveBatchPlan(output,records){
       plan.readings.map(e=>'<tr><td>'+esc(e.unit.label)+'</td><td>'+e.p.month+'</td><td>'+esc(FORM_METER_LABELS[e.type])+'</td><td>'+trNum(e.previous)+'</td><td>'+trNum(e.current)+'</td></tr>').join('')+'</tbody></table></div></details>':'')+
     '<div data-batch-error role="alert" class="danger"></div>'+
     (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<button type="button" class="primary" data-batch-commit>Onayla ve sisteme yükle</button>':'');
+  // Compact readable preview: one row per unit, detailed person splits remain editable on demand.
+  const summaries=new Map();
+  const addSummary=(unitId,label,month,amount,kind)=>{
+    const key=month+'|'+unitId;
+    if(!summaries.has(key))summaries.set(key,{label,month,amount:0,debts:0,meters:0});
+    const row=summaries.get(key);if(kind==='debt'){row.debts++;row.amount+=debtCents(amount)}else row.meters++;
+  };
+  plan.debt.forEach(e=>addSummary(e.unit.id,e.unit.label,e.month,e.amount,'debt'));
+  plan.readings.forEach(e=>addSummary(e.unit.id,e.unit.label,e.p.month,0,'meter'));
+  const compact=[...summaries.values()].sort((a,b)=>a.month.localeCompare(b.month)||a.label.localeCompare(b.label,'tr',{numeric:true}));
+  const shortTable='<div class="tableWrap archiveSummaryTable"><table><thead><tr><th>Daire</th><th>Dönem</th><th>Toplam borç</th><th>Borç kalemi</th><th>Sayaç</th></tr></thead><tbody>'+
+    compact.map(x=>'<tr><td><b>'+esc(x.label)+'</b></td><td>'+esc(x.month)+'</td><td class="archiveSummaryMoney">'+(x.debts?trMoney2(x.amount/100):'—')+'</td><td>'+x.debts+'</td><td>'+x.meters+'</td></tr>').join('')+
+    '</tbody><tfoot><tr><th colspan="2">TOPLAM</th><th class="archiveSummaryMoney">'+(plan.debt.length?trMoney2(compact.reduce((n,x)=>n+x.amount,0)/100):'—')+'</th><th>'+plan.debt.length+'</th><th>'+plan.readings.length+'</th></tr></tfoot></table></div>';
+  output.querySelector('h3')?.insertAdjacentHTML('afterend',
+    '<div class="notice ok" style="margin:10px 0"><b>'+compact.length+' dairelik özet.</b> Sistem PDF’deki toplam borçları ve sayaçları bu tabloda gösterir. Kişilere paylaştırma ayrıntıları gerektiğinde açılır.</div>'+shortTable);
+  const allocationPanels=[...output.querySelectorAll('details[data-allocation]')];
+  if(allocationPanels.length){
+    const outer=document.createElement('details');
+    outer.className='archiveAllocationGroup';
+    outer.dataset.debtAllocationList='';
+    outer.innerHTML='<summary><b>İsteğe bağlı: Borç kalemlerini ve sorumlu kişileri düzenle ('+allocationPanels.length+' kayıt)</b></summary><div class="archiveAllocationInner"></div>';
+    allocationPanels[0].before(outer);
+    allocationPanels.forEach(el=>outer.querySelector('.archiveAllocationInner').append(el));
+  }
+
   bindDebtSplits(output,plan.debt);
   output.querySelector('[data-batch-commit]')?.addEventListener('click',async event=>{
     const button=event.currentTarget, error=output.querySelector('[data-batch-error]');
