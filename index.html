@@ -355,6 +355,15 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 .archiveAllocationInner{display:grid;gap:6px;margin-top:8px}
 .archiveAllocationInner>details{background:white}
 @media(max-width:760px){.archiveImportItem{flex-direction:column;align-items:stretch}.archiveImportItem button{width:100%}}
+
+/* V1.35: visible correction confirmation action, not hidden behind hundreds of details */
+.archiveCommitDock{position:sticky;top:0;z-index:12;background:#fffdf5;border:2px solid #d8ae53;border-radius:11px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:12px;margin:12px 0;box-shadow:0 3px 12px rgba(30,42,61,.09)}
+.archiveCommitDock button{min-height:43px;padding:9px 18px;font-weight:800}
+.archiveCommitDock button:disabled{opacity:.45;cursor:not-allowed}
+.archiveCorrectionCheck{display:flex;align-items:center;gap:10px;max-width:720px;font-size:13px;font-weight:700}
+.archiveCorrectionCheck input{min-width:18px;min-height:18px;flex:none}
+@media(max-width:760px){.archiveCommitDock{flex-direction:column;align-items:stretch}.archiveCommitDock button{width:100%}}
+
 </style>
   <title>IBRA KAT</title>
 </head>
@@ -375,7 +384,7 @@ window.IBRA_KAT_CONFIG = { mode: "demo", supabaseUrl: "https://wbpyhiyrnnkahkuhu
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.34';
+const APP_VERSION = 'V1.35';
 const APP_VERSION_DATE = '22.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2807,18 +2816,21 @@ function collectArchiveBatch(records){
 function renderArchiveBatchPlan(output,records){
   const plan=collectArchiveBatch(records);
   const amounts=plan.debt.reduce((sum,e)=>sum+debtCents(e.amount),0);
-  output.innerHTML='<h3>Toplu aktarım önizlemesi</h3><p>'+plan.debt.length+' borç kalemi · '+plan.readings.length+
-    ' yeni sayaç · '+plan.repeated+' aynı veya ödemeli kayıt · '+trMoney2(amounts/100)+'</p>'+
+  output.innerHTML='<h3>Aktarım önizlemesi</h3><p>'+plan.debt.length+' aktarılacak borç kalemi · '+plan.readings.length+
+    ' yeni sayaç · '+plan.repeated+' değişmeyecek mevcut kayıt · '+trMoney2(amounts/100)+'</p>'+
+    (plan.corrected?'<div class="notice warn"><b>'+plan.corrected+' eski hatalı kayıt düzeltilecek.</b> Yeni bir borç eklemek yerine önceki yanlış tutar değiştirilecek. Ödemeyle bağlantılı veya PDF dışından oluşturulan kayıtlar otomatik düzeltilemez.</div>':'')+
     (plan.otherPeriods?'<p class="small">'+plan.otherPeriods+' borç kalemi başka döneme ait.</p>':'')+
     plan.errors.map(e=>'<p class="danger">'+esc(e)+'</p>').join('')+
     (plan.errors.length?'<p>'+esc(archivePdfHelp(plan.errors[0]))+'</p>':'')+
     (plan.debt.length?'<p>Her borcu açarak sorumluyu ve tutarı belirleyin. Bir ayın tamamında tek tarihli sorumlu varsa önerilir. Geçiş aylarında dağılımı kendiniz yapabilirsiniz.</p>':'')+
     plan.debt.map(e=>'<details class="card" data-allocation><summary>'+esc(e.unit.label)+' · '+e.month+' · '+esc(HISTORICAL_DEBT_TYPES[e.type])+
-      ' · '+trMoney2(e.amount)+(e.existingAllocation?' · mevcut':'')+'</summary><div data-parts></div><button type="button" data-add>Pay ekle</button></details>').join('')+
+      ' · '+trMoney2(e.amount)+(e.needsCorrection?' · DÜZELTİLECEK ('+trMoney2(e.previousAmount)+' → '+trMoney2(e.amount)+')':e.existingAllocation?' · mevcut':' · yeni')+'</summary><div data-parts></div><button type="button" data-add>Pay ekle</button></details>').join('')+
     (plan.readings.length?'<details><summary>Sayaç endekslerini göster</summary><div class="tableWrap"><table><thead><tr><th>Daire</th><th>Dönem</th><th>Sayaç</th><th>Önceki</th><th>Yeni</th></tr></thead><tbody>'+
       plan.readings.map(e=>'<tr><td>'+esc(e.unit.label)+'</td><td>'+e.p.month+'</td><td>'+esc(FORM_METER_LABELS[e.type])+'</td><td>'+trNum(e.previous)+'</td><td>'+trNum(e.current)+'</td></tr>').join('')+'</tbody></table></div></details>':'')+
     '<div data-batch-error role="alert" class="danger"></div>'+
-    (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<button type="button" class="primary" data-batch-commit>Onayla ve sisteme yükle</button>':'');
+    (!plan.errors.length&&(plan.debt.length||plan.readings.length)?'<div data-archive-action class="archiveCommitDock">'+
+      (plan.corrected?'<label class="archiveCorrectionCheck"><input type="checkbox" data-correction-approval> Yukarıdaki '+plan.corrected+' eski kaydın, PDF’deki doğru tutarlarla değiştirilmesini onaylıyorum.</label>':'')+
+      '<button type="button" class="primary" data-batch-commit '+(plan.corrected?'disabled':'')+'>Onayla ve sisteme aktar</button></div>':'');
   // Compact readable preview: one row per unit, detailed person splits remain editable on demand.
   const summaries=new Map();
   const addSummary=(unitId,label,month,amount,kind)=>{
@@ -2844,15 +2856,27 @@ function renderArchiveBatchPlan(output,records){
     allocationPanels.forEach(el=>outer.querySelector('.archiveAllocationInner').append(el));
   }
 
+  const actionDock=output.querySelector('[data-archive-action]');
+  const summary=output.querySelector('.archiveSummaryTable');
+  if(actionDock&&summary)summary.insertAdjacentElement('afterend',actionDock);
+  const approval=output.querySelector('[data-correction-approval]');
+  approval?.addEventListener('change',()=>{
+    const btn=output.querySelector('[data-batch-commit]');
+    if(btn)btn.disabled=!approval.checked;
+  });
   bindDebtSplits(output,plan.debt);
   output.querySelector('[data-batch-commit]')?.addEventListener('click',async event=>{
     const button=event.currentTarget, error=output.querySelector('[data-batch-error]');
+    if(plan.corrected&&!output.querySelector('[data-correction-approval]')?.checked){
+      error.textContent='Eski kayıtların düzeltilmesini onaylamadan aktarım yapılamaz.';return;
+    }
     button.disabled=true;error.textContent='';
     try{
       const shares=readDebtSplits(output,plan.debt);
       const result=await commitSpreadsheetChange(()=>{
         const current=collectArchiveBatch(records);
         if(current.errors.length)throw new Error(current.errors[0]);
+        if(current.corrected!==plan.corrected)throw new Error('Mevcut kayıtlar değişti. Önizlemeyi yeniden açın.');
         const added=applyArchiveDebtSplits(current.debtEntries,shares,plan.debt);
         const meters=applyArchiveReadings(current.readings);
         return {added,meters,changed:added+meters>0};
