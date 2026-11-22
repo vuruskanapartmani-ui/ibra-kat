@@ -2560,6 +2560,7 @@ function txAllocated(txId){return state.payments.filter(p=>p.bankTransactionId==
 function bankTxStatus(tx){const a=txAllocated(tx.id),amt=Math.max(0,Number(tx.amount||0));return amt<=0?'Gider':a<=0?'Eşleştirme bekliyor':a+0.005>=amt?'Tam dağıtıldı':`Kısmi · ${trMoney(amt-a)} kaldı`}
 let bankFilterState={bank:'all',direction:'all',status:'all',unit:'all',q:''};
 const bankSelectedIds=new Set();
+let bulkAssignSelectedIds=[];
 function setBankFilter(k,v){syncBankSelectionFromDOM();bankFilterState[k]=v;render()}
 function bankFilterStatus(tx){const amount=Number(tx.amount||0);if(amount>0){const a=txAllocated(tx.id);return a+0.005>=amount?'processed':'pending'}return tx.expenseId?'processed':'pending'}
 function filteredBankTransactions(list){
@@ -4475,7 +4476,7 @@ async function saveExpense(){
 function openBankExpense(txId){const tx=state.bankTransactions.find(x=>x.id===txId);if(!tx)return;if(tx.expenseId){notify('Bu banka çıkışı zaten gider olarak işlendi.');return}openExpenseForm({date:tx.date,category:suggestExpenseCategory(tx.description),description:tx.description,amount:Math.abs(Number(tx.amount)),paymentMethod:'Banka',bankTransactionId:tx.id})}
 
 function updateBulkBankBar(){
-  syncBankSelectionFromDOM();const n=bankSelectedIds.size,el=$('#bulkBankCount');
+  syncBankSelectionFromDOM();const n=$('.bank-bulk-check:checked').length,el=$('#bulkBankCount');
   if(el)el.textContent=`${n} hareket seçili`;
 }
 function selectAllEligibleBankRows(on=true){
@@ -4501,7 +4502,7 @@ function bulkCreateExpense(tx){
   state.expenses.push(e);tx.expenseId=e.id;return true;
 }
 function processSelectedBankTransactions(){
-  syncBankSelectionFromDOM();const ids=[...bankSelectedIds];if(!ids.length){notify('Önce işlenecek hareketleri seç.');return}
+  syncBankSelectionFromDOM();const ids=$('.bank-bulk-check:checked').map(x=>x.dataset.tx);if(!ids.length){notify('Önce işlenecek hareketleri seç.');return}
   let incomeCount=0,expenseCount=0,skipped=0;
   ids.forEach(id=>{const tx=state.bankTransactions.find(x=>x.id===id);if(!tx){skipped++;return}if(Number(tx.amount)>0){if(bulkAutoAllocateIncome(tx))incomeCount++;else skipped++;}else{if(bulkCreateExpense(tx))expenseCount++;else skipped++;}});
   bankSelectedIds.clear();saveState();logAudit('Toplu banka işlemi',`Tahsilat ${incomeCount} · Gider ${expenseCount} · Atlanan ${skipped}`);render();notify(`${incomeCount} tahsilat ve ${expenseCount} gider işlendi${skipped?` · ${skipped} hareket atlandı`:''}.`);
@@ -4509,11 +4510,13 @@ function processSelectedBankTransactions(){
 
 function openBulkUnitAssignment(){
   syncBankSelectionFromDOM();
-  const ids=[...bankSelectedIds].filter(id=>{
+  const visibleSelected=$('.bank-bulk-check:checked').map(x=>x.dataset.tx);
+  const ids=visibleSelected.filter(id=>{
     const tx=state.bankTransactions.find(t=>t.id===id);
     return tx&&Number(tx.amount)>0&&txAllocated(id)+0.005<Number(tx.amount);
   });
   if(!ids.length)return notify('Önce dağıtılmamış gelen ödemeleri seçin.');
+  bulkAssignSelectedIds=[...ids];
   const defaultUnit=bankFilterState.unit!=='all'?bankFilterState.unit:'';
   const options=state.units.map(u=>'<option value="'+u.id+'" '+(u.id===defaultUnit?'selected':'')+'>'+esc(u.label)+'</option>').join('');
   const total=ids.reduce((a,id)=>{const t=state.bankTransactions.find(x=>x.id===id);return a+Math.max(0,Number(t.amount)-txAllocated(id))},0);
@@ -4533,16 +4536,18 @@ function bulkAssignmentPersonOptions(){
 async function confirmBulkUnitAssignment(){
   const unitId=$('#bulkAssignUnit')?.value,personId=$('#bulkAssignPerson')?.value||null;
   if(!unitId||!unit(unitId))return notify('Hedef daire seçin.');
-  const ids=[...bankSelectedIds].filter(id=>{
+  const ids=bulkAssignSelectedIds.filter(id=>{
     const tx=state.bankTransactions.find(x=>x.id===id);
     return tx&&Number(tx.amount)>0&&txAllocated(id)+0.005<Number(tx.amount);
   });
   if(!ids.length)return notify('Dağıtılmamış ödeme kalmadı.');
   const sum=ids.reduce((a,id)=>{const t=state.bankTransactions.find(x=>x.id===id);return a+Math.max(0,Number(t.amount)-txAllocated(id))},0);
+  if(personId&&ids.some(id=>{const t=state.bankTransactions.find(x=>x.id===id);return !state.responsibilities.some(r=>r.unitId===unitId&&r.personId===personId&&(!r.startDate||r.startDate<=t.date)&&(!r.endDate||t.date<=r.endDate))}))return notify('Bu ödemelerden bazılarının tarihi seçilen kişinin sorumluluk dönemi dışında. Kişiyi boş bırakın veya ayrı dağıtın.');
   if(!confirm(ids.length+' banka hareketinin kalan '+trMoney(sum)+' tutarı '+unit(unitId).label+' için kaydedilsin mi?'))return;
   try{
     const result=await commitSpreadsheetChange(()=>{
       if(!unit(unitId)||personId&&!state.responsibilities.some(r=>r.unitId===unitId&&r.personId===personId))throw Error('Kişi/daire bağlantısı değişmiş.');
+      if(personId&&ids.some(id=>{const tx=state.bankTransactions.find(t=>t.id===id);return !tx||!state.responsibilities.some(r=>r.unitId===unitId&&r.personId===personId&&(!r.startDate||r.startDate<=tx.date)&&(!r.endDate||tx.date<=r.endDate))}))throw Error('Ödeme tarihi kişinin sorumluluk dönemi dışında.');
       let count=0,amount=0;
       for(const id of ids){
         const tx=state.bankTransactions.find(x=>x.id===id);if(!tx||Number(tx.amount)<=0)continue;
@@ -4555,7 +4560,7 @@ async function confirmBulkUnitAssignment(){
       }
       return {changed:count>0,count,amount};
     },'Banka hareketleri topluca daireye eşleştirildi',x=>unit(unitId).label+' · '+x.count+' ödeme · '+trMoney(x.amount));
-    bankSelectedIds.clear();closeModal();render();notify(result.count+' ödeme doğrulandı, tutar '+trMoney(result.amount));
+    bankSelectedIds.clear();bulkAssignSelectedIds=[];closeModal();render();notify(result.count+' ödeme doğrulandı, tutar '+trMoney(result.amount));
   }catch(e){notify('Toplu eşleştirme tamamlanamadı: '+e.message)}
 }
 function caretakerHistory(){return shell(`<h2>Daire Geçmişi</h2><div class="muted small">Kat görevlisi bir dairenin geçmiş tüketim, borç ve ödeme akışını görebilir.</div><div class="list" style="margin-top:10px">${state.units.map(u=>`<button class="card" style="text-align:left" onclick="openUnitHistory('${u.id}')"><b>${u.label}</b><div class="small muted">${activeTenant(u.id)?'Kiracı: '+esc(activeTenant(u.id).name):'Malik sorumlu'}</div></button>`).join('')}</div>`,caretakerMainNav());}
