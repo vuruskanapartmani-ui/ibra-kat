@@ -384,7 +384,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.39';
+const APP_VERSION = 'V1.40';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -405,10 +405,13 @@ let localRecoveryAvailable = false;
 const RECOVERY_KEY = 'ibraKatLocalRecoveryV136';
 const LOCAL_SAVE_VERSION_KEY = 'ibraKatLastCloudSnapshotV136';
 const PENDING_SYNC_KEY = 'ibraKatPendingSyncV138';
+const LAST_CONFIRMED_REV_KEY = 'ibraKatLastConfirmedRevisionV140';
 let saveRetryTimer=null;
 let saveRetryCount=0;
 let cloudSavePromise=null;
 let remotePendingState=null;
+let revisionPollHandle=null;
+let revisionPollBusy=false;
 function stableSnapshot(x){
   if(Array.isArray(x))return '['+x.map(stableSnapshot).join(',')+']';
   if(x&&typeof x==='object')return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+stableSnapshot(x[k])).join(',')+'}';
@@ -430,6 +433,24 @@ function retainPendingForRecovery(){
   localRecoveryAvailable=true;
   return true;
 }
+async function checkOtherDeviceUpdates(){
+  if(revisionPollBusy||!session||!['manager','caretaker'].includes(session.role)||!authSession||!cloudLoaded||syncBlocked||localRecoveryAvailable||cloudSaveRunning||cloudSavePromise||cloudTimer||localStorage.getItem(PENDING_SYNC_KEY))return;
+  if(document.visibilityState==='hidden')return;
+  revisionPollBusy=true;
+  try{
+    const probe=await authCall('staff_get_revision',{building_id:CONFIG.buildingId},true);
+    if(probe?.updated_at&&probe.updated_at!==cloudRevision){
+      await cloudLoadState();
+      if(!syncBlocked){render();notify('Diğer cihazdaki yeni kayıtlar alındı.')}
+    }
+  }catch(e){console.warn('Cloud revision check failed',e)}
+  finally{revisionPollBusy=false}
+}
+function startOtherDeviceUpdates(){
+  clearInterval(revisionPollHandle);
+  revisionPollHandle=setInterval(()=>{void checkOtherDeviceUpdates()},20000);
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void checkOtherDeviceUpdates()});
 function warnUnsyncedClose(ev){
   if(localStorage.getItem(PENDING_SYNC_KEY)||cloudTimer||cloudSaveRunning||syncBlocked){
     ev.preventDefault();ev.returnValue='';
@@ -489,6 +510,7 @@ async function flushCloudSave(){
       if(session!==staffSession)return false;
       cloudRevision=verified.updated_at;
       session.lastCloudSync=verified.updated_at;
+      localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
       localStorage.setItem(SESSION_KEY,JSON.stringify(session));
       localStorage.removeItem(LOCAL_SAVE_VERSION_KEY);
       saveRetryCount=0;
@@ -534,6 +556,7 @@ async function syncNow(){
       const remote=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
       if(remote?.state&&stableSnapshot(remote.state)===stableSnapshot(state)){
         cloudRevision=remote.updated_at;syncBlocked=false;cloudLoaded=true;saveRetryCount=0;
+        localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
         localStorage.removeItem(PENDING_SYNC_KEY);
         localStorage.setItem(LOCAL_SAVE_VERSION_KEY,JSON.stringify(state));
         setSyncStatus('Doğrulandı · '+new Date().toLocaleTimeString('tr-TR'));
@@ -619,6 +642,7 @@ async function uploadRecoveredLocal(){
     const verified=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
     if(verified.updated_at!==saved.updated_at||stableSnapshot(verified.state)!==stableSnapshot(old))throw new Error('Sunucudan geri okuma başarısız.');
     cloudRevision=saved.updated_at;state=normalizeState(old);localStorage.setItem(STORE_KEY,JSON.stringify(state));
+    localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
     localStorage.removeItem(PENDING_SYNC_KEY);localStorage.removeItem(LOCAL_SAVE_VERSION_KEY);
     localStorage.removeItem(RECOVERY_KEY);remotePendingState=null;localRecoveryAvailable=false;syncBlocked=false;
     setSyncStatus('Doğrulandı · '+new Date().toLocaleTimeString('tr-TR'));closeModal();render();notify('Yerel kopya sunucuya aktarılıp doğrulandı.');
@@ -853,6 +877,7 @@ async function commitSpreadsheetChange(change,action,detail){
       if(verify.updated_at!==response.updated_at||stableSnapshot(verify.state)!==stableSnapshot(working))throw new Error('Yazım sonrası sunucu verisi doğrulanamadı.');
       cloudRevision=response.updated_at;
       session.lastCloudSync=cloudRevision;
+      localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
       localStorage.setItem(SESSION_KEY,JSON.stringify(session));
       localStorage.removeItem(LOCAL_SAVE_VERSION_KEY);
       localStorage.removeItem(PENDING_SYNC_KEY);
@@ -909,7 +934,7 @@ async function cloudLoadState(){
     if(existingRaw&&!pending){
       let candidate=null;
       try{candidate=JSON.parse(existingRaw)}catch(e){}
-      if(candidate&&Array.isArray(candidate.units)&&stableSnapshot(candidate)!==stableSnapshot(data.state)){
+      if(candidate&&Array.isArray(candidate.units)&&!localStorage.getItem(LAST_CONFIRMED_REV_KEY)&&stableSnapshot(candidate)!==stableSnapshot(data.state)){
         // Legacy V1.35-V1.37 unsynced data: stop rather than erase it.
         state=normalizeState(candidate);
         cloudRevision=data.updated_at;cloudLoaded=true;syncBlocked=true;
@@ -926,6 +951,7 @@ async function cloudLoadState(){
     remotePendingState=null;
     activePeriodId=state.periods.find(p=>p.status==='draft')?.id||state.periods[0]?.id;
     session.lastCloudSync=data.updated_at;
+    localStorage.setItem(LAST_CONFIRMED_REV_KEY,cloudRevision);
     localStorage.setItem(SESSION_KEY,JSON.stringify(session));
     localStorage.removeItem(LOCAL_SAVE_VERSION_KEY);
     localRecoveryAvailable=!!localStorage.getItem(RECOVERY_KEY);
@@ -1028,7 +1054,7 @@ async function login(code,password){
     const label=role==='manager'?'Admin':role==='caretaker'?'Engin':unitId?((unit(unitId)?.label||a.username)+' '+(role==='owner'?'Malik':'Kiracı')):(a.display_name||a.username);
     session={role,label,unitId,authAccountId:a.id,authUsername:a.username,mustChangePassword:!!a.must_change_password,recoveryEmail:a.recovery_email||null};
     localStorage.setItem(SESSION_KEY,JSON.stringify(session));
-    if(['manager','caretaker'].includes(role)) await cloudLoadState();
+    if(['manager','caretaker'].includes(role)){await cloudLoadState();startOtherDeviceUpdates();}
     else {
       const {data:residentState,error:residentStateError}=await publicSb.rpc('resident_portal_state');
       if(residentStateError)throw residentStateError;
@@ -1056,6 +1082,7 @@ async function logout(){
     notify('Bulut kaydı doğrulanmadı. Önce JSON yedek indirip senkronizasyonu kontrol edin.');return;
   }
   try{await cloudActivity('Çıkış yaptı','Oturumu kapattı',{kind:'logout'})}catch(e){}
+  clearInterval(revisionPollHandle);revisionPollHandle=null;
   session=null;cloudAccess=null;authSession=null;cloudLoaded=false;cloudRevision=null;
   localStorage.removeItem(SESSION_KEY);localStorage.removeItem(AUTH_SESSION_KEY);
   try{await publicSb.auth.signOut()}catch(e){}
@@ -4466,7 +4493,7 @@ async function resumeAndRender(){
       try{await publicSb?.auth?.signOut()}catch(_e){}
     }
   }
-  if(session&&['manager','caretaker'].includes(session.role)&&authSession)await cloudLoadState();
+  if(session&&['manager','caretaker'].includes(session.role)&&authSession){await cloudLoadState();startOtherDeviceUpdates();}
   render();
 }
 
