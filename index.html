@@ -4479,12 +4479,12 @@ function updateBulkBankBar(){
   if(el)el.textContent=`${n} hareket seçili`;
 }
 function selectAllEligibleBankRows(on=true){
-  $('.bank-bulk-check').forEach(x=>{x.checked=!!on;if(on)bankSelectedIds.add(x.dataset.tx);else bankSelectedIds.delete(x.dataset.tx)});updateBulkBankBar();
+  $$('.bank-bulk-check').forEach(x=>{x.checked=!!on;if(on)bankSelectedIds.add(x.dataset.tx);else bankSelectedIds.delete(x.dataset.tx)});updateBulkBankBar();
 }
 function syncBankSelectionFromDOM(){
-  $('.bank-bulk-check').forEach(x=>{if(x.checked)bankSelectedIds.add(x.dataset.tx);else bankSelectedIds.delete(x.dataset.tx)});
+  $$('.bank-bulk-check').forEach(x=>{if(x.checked)bankSelectedIds.add(x.dataset.tx);else bankSelectedIds.delete(x.dataset.tx)});
 }
-function selectAllFilteredBankRows(){selectAllEligibleBankRows(true);notify('Filtredeki '+$('.bank-bulk-check:checked').length+' işlem seçildi.');}
+function selectAllFilteredBankRows(){selectAllEligibleBankRows(true);notify('Filtredeki '+$$('.bank-bulk-check:checked').length+' işlem seçildi.');}
 
 function bulkAutoAllocateIncome(tx){
   const match=effectiveBankMatch(tx),u=match.suggested.length===1?match.suggested[0]:null;
