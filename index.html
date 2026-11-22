@@ -384,7 +384,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.36';
+const APP_VERSION = 'V1.37';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -462,6 +462,32 @@ async function syncNow(){
   }
   if(!cloudLoaded){await cloudLoadState();return}
   clearTimeout(cloudTimer);cloudTimer=null;await flushCloudSave();
+}
+function inspectLocalRecovery(){
+  const recovery=localStorage.getItem(RECOVERY_KEY);
+  const current=localStorage.getItem(STORE_KEY);
+  const last=localStorage.getItem(LOCAL_SAVE_VERSION_KEY);
+  const safeCount=(raw)=>{try{const val=JSON.parse(raw);return syncCount(val.data||val)}catch(e){return 'Okunamadı'}};
+  openModal('<h2>Yerel Veri Kurtarma Kontrolü</h2>'
+    +'<div class="notice warn">Bu ekranda yalnızca bu tarayıcıda mevcut olan kopyalar gösterilir. Henüz hiçbir veri Supabase üzerine yazılmaz.</div>'
+    +'<div class="row"><b>Eski yerel kurtarma kopyası</b><span>'+ (recovery?'Mevcut':'Bulunamadı') +'</span></div>'
+    +(recovery?'<div class="small">'+esc(safeCount(recovery))+'</div><button onclick="exportRecoveryJson()">Eski Yerel Kopyayı İndir</button>':'')
+    +'<div class="row"><b>Tarayıcının mevcut verisi</b><span>'+(current?'Mevcut':'Bulunamadı')+'</span></div>'
+    +(current?'<div class="small">'+esc(safeCount(current))+'</div><button onclick="exportRawLocalJson()">Tarayıcı Kopyasını İndir</button>':'')
+    +'<div class="row"><b>Son bilinen bulut kopyası</b><span>'+(last?'Mevcut':'Bulunamadı')+'</span></div>'
+    +(last?'<button onclick="exportLastCloudJson()">Son Bulut Kopyasını İndir</button>':'')
+    +'<div class="actions" style="margin-top:12px"><button onclick="exportCurrentJson()">Açık Veriyi İndir</button><button onclick="closeModal()">Kapat</button></div>'
+    +(recovery?'<div class="actions" style="margin-top:10px"><button onclick="openRecoverySync()">Kurtarma Karşılaştırması</button></div>':'<div class="notice warn">Eski kurtarma verisi yoksa önceki yerel değişiklikleri otomatik olarak geri getirmek mümkün olmayabilir. Tarayıcı geçmişini/site verilerini temizlemeyin.</div>'));
+}
+function exportRawLocalJson(){
+  const raw=localStorage.getItem(STORE_KEY);
+  if(!raw)return notify('Yerel kayıt bulunamadı.');
+  downloadData(raw,'IBRAKAT-tarayici-ham-'+new Date().toISOString().slice(0,10)+'.json');
+}
+function exportLastCloudJson(){
+  const raw=localStorage.getItem(LOCAL_SAVE_VERSION_KEY);
+  if(!raw)return notify('Son bulut kopyası bulunamadı.');
+  downloadData(raw,'IBRAKAT-son-bulut-kopyasi-'+new Date().toISOString().slice(0,10)+'.json');
 }
 function openRecoverySync(){
   const raw=localStorage.getItem(RECOVERY_KEY);
@@ -883,7 +909,7 @@ async function logout(){
 
 function shell(content,nav){
   return `<div class="app">
-    <div class="brand noPrint"><div><small>IBRA KAT · ${APP_VERSION}</small><h1>${esc(state.building.name)}</h1><div class="muted small">${esc(session.label)}</div></div><div class="actions"><span class="badge">${APP_VERSION}</span><span class="badge" id="ibraSyncStatus">${esc(syncStatus)}</span><button onclick="syncNow()">Şimdi Senkronize Et</button><button onclick="exportCurrentJson()">JSON Yedek İndir</button>${localRecoveryAvailable?'<button class="dangerBtn" onclick="openRecoverySync()">Yerel Çalışmaları Kurtar</button>':''}<button onclick="openChangePassword(false)">Şifre</button><button onclick="logout()">Çıkış</button></div></div>
+    <div class="brand noPrint"><div><small>IBRA KAT · ${APP_VERSION}</small><h1>${esc(state.building.name)}</h1><div class="muted small">${esc(session.label)}</div></div><div class="actions"><span class="badge">${APP_VERSION}</span><span class="badge" id="ibraSyncStatus">${esc(syncStatus)}</span><button onclick="syncNow()">Şimdi Senkronize Et</button><button onclick="exportCurrentJson()">JSON Yedek İndir</button><button onclick="inspectLocalRecovery()">Kurtarma Kontrolü</button>${localRecoveryAvailable?'<button class="dangerBtn" onclick="openRecoverySync()">Yerel Çalışmaları Kurtar</button>':''}<button onclick="openChangePassword(false)">Şifre</button><button onclick="logout()">Çıkış</button></div></div>
     <div style="height:10px"></div>${content}
     <div class="muted small" style="text-align:center;padding:18px 0 86px">IBRA KAT ${APP_VERSION} · ${APP_VERSION_DATE}</div>
   </div>${bottomNav(nav)}`;
@@ -4265,7 +4291,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
