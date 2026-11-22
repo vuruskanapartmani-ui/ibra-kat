@@ -2192,8 +2192,39 @@ function pdfGridLines(canvas,vertical){
   }
   return peaks.map(group=>group[Math.floor(group.length/2)]);
 }
+
+/* V1.32 - PDF with embedded selectable text: preserve decimal commas and exact index digits. */
+function nativeArchivePageRows(page,textContent,mode,xs,ys,viewport){
+  const cells=Array.from({length:ys.length-1},()=>Array.from({length:xs.length-1},()=>[]));
+  const scalex=viewport.width/(page.view[2]-page.view[0]);
+  const scaley=viewport.height/(page.view[3]-page.view[1]);
+  for(const item of textContent.items||[]){
+    const str=String(item.str||'').trim();
+    if(!str)continue;
+    // PDF.js transform coordinates use a bottom-left baseline, while canvas y is top-down.
+    const pt=viewport.convertToViewportPoint(item.transform[4],item.transform[5]);
+    const x=pt[0]+Math.max(0,item.width||0)*scalex*0.45;
+    const y=pt[1]-Math.max(0,Math.abs(item.transform[3]||0))*scaley*0.4;
+    const col=xs.findIndex((edge,i)=>i<xs.length-1&&x>=edge&&x<xs[i+1]);
+    const row=ys.findIndex((edge,i)=>i<ys.length-1&&y>=edge&&y<ys[i+1]);
+    if(row<0||col<0)continue;
+    cells[row][col].push({x,str});
+  }
+  const mapping=mode==='debt'?[0,1,2,3,4,6,7]:[0,7,8,4,5,1,2,3];
+  const rows=[];
+  for(const row of cells){
+    const entry=col=>row[col].sort((a,b)=>a.x-b.x).map(v=>v.str).join(' ').trim();
+    const label=entry(0);
+    const match=sheetKey(label).match(/(?:DAIRE|D)\s*0*(\d{1,2})(?:\s|$)/);
+    if(!match||Number(match[1])<1||Number(match[1])>33)continue;
+    const values=mapping.map((col,j)=>j===0?'D'+match[1].padStart(2,'0'):entry(col));
+    if(values.slice(1).filter(Boolean).length<mapping.length-2)continue;
+    rows.push(values);
+  }
+  return rows;
+}
+
 async function pdfArchiveTables(file,mode,progress){
-  if(!window.Tesseract)throw new Error('Tarama okuyucusu yüklenemedi.');
   const base='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/';
   const pdfjs=await import(base+'pdf.mjs');
   pdfjs.GlobalWorkerOptions.workerSrc=base+'pdf.worker.mjs';
@@ -2201,7 +2232,6 @@ async function pdfArchiveTables(file,mode,progress){
   let worker;
   try{
     if(pdf.numPages>24)throw new Error('Bu dosyayı en fazla 24 sayfalık parçalar halinde yükleyin.');
-    worker=await Tesseract.createWorker('eng');
     const result=[];
     const auto=mode==='auto';
     let metadata=null;
@@ -2217,6 +2247,23 @@ async function pdfArchiveTables(file,mode,progress){
       if(auto&&pageNo===1&&pageMode)mode=pageMode;
       const expected=mode==='debt'?9:11;
       if(xs.length!==expected||ys.length<5)throw new Error('Sayfa '+pageNo+' örnek aylık rapor düzeniyle eşleşmedi.');
+      // Digitally generated PDFs contain precise text. Prefer it over OCR, which drops commas.
+      const nativeText=await page.getTextContent();
+      const nativeRows=nativeArchivePageRows(page,nativeText,mode,xs,ys,viewport);
+      if(nativeRows.length>=Math.min(20,Math.max(1,ys.length-5))){
+        const raw=nativeText.items.map(t=>t.str).join(' ');
+        if(auto){
+          const info=pdfArchiveMetadata(raw,raw);
+          if(!metadata)metadata=info;
+          else if(!info.month||metadata.month!==info.month||metadata.due!==info.due)
+            throw new Error('Dosyanın sayfalarında dönem veya vade farklı.');
+        }
+        result.push(...nativeRows);
+        progress('PDF metin katmanından '+nativeRows.length+' daire doğru rakamlarla okundu.');
+        continue;
+      }
+      if(!window.Tesseract)throw new Error('Taranmış PDF için görüntü okuyucusu yüklenemedi.');
+      worker ||= await Tesseract.createWorker('eng');
       if(auto){
         const info=await readPdfArchiveMetadata(worker,pageImage,xs,ys);
         if(!metadata)metadata=info;
