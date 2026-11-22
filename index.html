@@ -545,6 +545,18 @@ async function syncNow(){
   if(!cloudLoaded){await cloudLoadState();return}
   clearTimeout(cloudTimer);cloudTimer=null;
   clearTimeout(saveRetryTimer);saveRetryTimer=null;saveRetryCount=0;
+  const lastConfirmed=localStorage.getItem(LOCAL_SAVE_VERSION_KEY);
+  if(!localStorage.getItem(PENDING_SYNC_KEY)&&lastConfirmed===JSON.stringify(state)){
+    const remote=await authCall('staff_get_state',{building_id:CONFIG.buildingId},true);
+    if(remote?.state&&remote.updated_at===cloudRevision&&stableSnapshot(remote.state)===stableSnapshot(state)){
+      setSyncStatus('Doğrulandı · '+new Date().toLocaleTimeString('tr-TR'));
+      notify('Sunucudaki kayıtlar doğrulandı. Yeni veri yok.');
+      return;
+    }
+    syncBlocked=true;setSyncStatus('Sunucu farklı — yerel kopya korundu');
+    notify('Sunucu kaydı değişmiş. Herhangi bir veri üzerine yazılmadı.');
+    return;
+  }
   const ok=await flushCloudSave();
   if(ok)notify('Sunucu kaydı geri okunarak doğrulandı.');
 }
@@ -773,6 +785,8 @@ function normalizeState(s){
   return s;
 }
 function saveState(){
+  // Spreadsheet changes use their own single verified transaction; never queue an intermediate write.
+  if(spreadsheetCommitPending)return;
   localStorage.setItem(STORE_KEY,JSON.stringify(state));
   if(session && ['manager','caretaker'].includes(session.role)){
     persistPendingSnapshot();
