@@ -1885,7 +1885,11 @@ function periodDisplayName(p){
 }
 function archiveExistingPeriodConflict(start,end){
   const from=archiveRangeStart(start,end);
-  if(from===end)return null;
+  if(from===end){
+    const existing=state.periods.find(p=>p.month===end);
+    if(existing?.startMonth&&existing.startMonth!==end)return archivePeriodLabel(existing.startMonth,end)+' zaten birleşik dönem. Tek aylık PDF ile üzerine yazılamaz.';
+    return null;
+  }
   const separate=state.periods.find(p=>p.month===from);
   if(separate&&(
     state.charges.some(c=>c.periodId===separate.id)||
