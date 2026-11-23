@@ -2355,6 +2355,25 @@ function bankNameForPayment(p){
   const id=p.bankId||tx?.bankId;
   return p.bankName||tx?.bankName||BANK_PROFILES[id]?.name||id||p.paymentMethod||'Banka belirtilmemiş';
 }
+function bankTxDateTime(tx){
+ if(!tx)return '';
+ const date=String(tx.date||'').slice(0,10);
+ const candidate=String(tx.dateTime||tx.datetime||tx.statementKey||tx.timestamp||'');
+ const full=candidate.match(/(?:T|\s)([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?/);
+ const separate=String(tx.time||'').match(/^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?/);
+ const clock=full?full[1]+':'+full[2]+':'+(full[3]||'00'):separate?separate[1]+':'+separate[2]+':'+(separate[3]||'00'):'';
+ return date+(clock?'T'+clock:'');
+}
+function paymentDateTime(p){
+ const tx=(state.bankTransactions||[]).find(x=>x.id===p?.bankTransactionId);
+ return bankTxDateTime(tx)||bankTxDateTime(p)||String(p?.date||'');
+}
+function movementDateLabel(value){
+ const text=typeof value==='object'?bankTxDateTime(value):String(value||'');
+ if(!text)return '—';
+ return text.replace('T',' ').slice(0,19);
+}
+function bankDateSortKey(tx){return bankTxDateTime(tx)||String(tx?.date||'');}
 function bankPaymentDetails(p){
   const tx=state.bankTransactions.find(x=>x.id===p.bankTransactionId);
   return {
@@ -2371,7 +2390,7 @@ function openLedgerPaymentDetails(unitId,paymentId,personId=''){
   const p=state.payments.find(x=>x.id===paymentId&&x.unitId===unitId);
   if(!p)return notify('Ödeme kaydı bulunamadı.');
   const d=bankPaymentDetails(p);
-  const pairs=[['İşlem tarihi',p.date||'—'],['Ödeme tutarı',trMoney(p.amount)],['Kayıtlı sorumlu',person(p.personId)?.name||'Atanmamış'],['Banka',d.bank],['Alıcı banka hesap tanımı',d.account],['Gönderen IBAN',d.senderIban],['Banka işlem açıklaması',d.description],['İşlem referans kodu',d.reference],['Kaynak dosya',d.source],['Sistem banka hareketi kimliği',d.txId]];
+  const pairs=[['İşlem tarihi / saati',movementDateLabel(paymentDateTime(p))],['Ödeme tutarı',trMoney(p.amount)],['Kayıtlı sorumlu',person(p.personId)?.name||'Atanmamış'],['Banka',d.bank],['Alıcı banka hesap tanımı',d.account],['Gönderen IBAN',d.senderIban],['Banka işlem açıklaması',d.description],['İşlem referans kodu',d.reference],['Kaynak dosya',d.source],['Sistem banka hareketi kimliği',d.txId]];
   const rows=pairs.map(([key,value])=>'<div class="row" style="align-items:flex-start"><span style="min-width:125px">'+esc(key)+'</span><b style="overflow-wrap:anywhere;text-align:right">'+esc(String(value))+'</b></div>').join('');
   openModal('<h2>'+esc(unit(unitId)?.label||unitId)+' · Ödeme Detayı</h2>'
     +'<div class="notice">IBAN yalnızca içe aktarılan banka verisinde gerçekten varsa gösterilir. Hesap tanımı gönderen IBAN yerine geçmez.</div>'
@@ -2440,7 +2459,7 @@ function ledgerRowsHTML(unitId,charges,payments,personId=''){
     const d=bankPaymentDetails(p);
     const pick=bulk?'<input type="checkbox" class="ledgerPick" data-kind="payment" data-id="'+esc(p.id)+'" '+(p.chargeId?'disabled title="Borca bağlı ödeme"':'')+'> ':'';
     const details='<div class="small muted ledgerBankSub" title="'+esc(d.description)+'">'+esc(d.description.length>72?d.description.slice(0,72)+'…':d.description)+'</div>';
-    return '<tr data-ledger-type="Ödeme" data-ledger-date="'+esc(p.date||'')+'" data-ledger-due="" data-ledger-owner="'+esc(person(p.personId)?.name||'Atanmamış')+'" data-ledger-amount="'+Number(p.amount||0)+'" data-ledger-bank="'+esc(d.bank)+'"><td>'+pick+'Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(person(p.personId)?.name||'Atanmamış')+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td><b>'+esc(d.bank)+'</b>'+details+'</td><td class="ledgerAct"><button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Banka detayları</button>'+(bulk?'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>':'')+'</td></tr>';
+    return '<tr data-ledger-type="Ödeme" data-ledger-date="'+esc(p.date||'')+'" data-ledger-due="" data-ledger-owner="'+esc(person(p.personId)?.name||'Atanmamış')+'" data-ledger-amount="'+Number(p.amount||0)+'" data-ledger-bank="'+esc(d.bank)+'"><td>'+pick+'Ödeme</td><td>'+esc(movementDateLabel(paymentDateTime(p)))+'</td><td>—</td><td>'+esc(person(p.personId)?.name||'Atanmamış')+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td><b>'+esc(d.bank)+'</b>'+details+'</td><td class="ledgerAct"><button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Banka detayları</button>'+(bulk?'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>':'')+'</td></tr>';
   });
   const totalDebt=charges.reduce((n,c)=>n+Number(c.amount||0),0),totalPaid=payments.reduce((n,p)=>n+Number(p.amount||0),0);
   const actions=bulk?'<div class="actions" style="margin:8px 0"><button class="primary" onclick="openSelectedLedgerOwnerEditor(\''+unitId+'\')">Seçilen Borç + Ödemeleri Toplu Ata</button><button onclick="openBulkLedgerOwnerEditor(\''+unitId+'\')">Tüm Hareketlerden Seç</button></div>':'';
@@ -2595,7 +2614,7 @@ async function saveBulkLedgerOwnerTransfer(unitId){
 function openPaymentOwnerEditor(unitId,paymentId){
   const p=state.payments.find(x=>x.id===paymentId&&x.unitId===unitId);if(!p)return;
   openModal('<h2>Ödeme Sorumlusunu Düzenle</h2>'
-    +'<div class="notice">'+esc(p.date||'')+' · '+esc(bankNameForPayment(p))+' · '+trMoney(p.amount)+'</div>'
+    +'<div class="notice">'+esc(movementDateLabel(paymentDateTime(p)))+' · '+esc(bankNameForPayment(p))+' · '+trMoney(p.amount)+'</div>'
     +'<label>Hesaba işlenecek kişi<select id="paymentOwnerTarget">'+personOptionsForTransfer(unitId,p.personId||'')+'</select></label>'
     +'<div class="notice warn">Ödeme bir borç kalemine bağlıysa, yalnızca o borçtaki kişiye yönlendirilebilir. Borç/ödeme bağlantıları korunur.</div>'
     +'<div class="actions"><button onclick="openUnitCenter(\''+unitId+'\')">← Geri</button><button class="primary" onclick="savePaymentOwnerTransfer(\''+unitId+'\',\''+paymentId+'\')">Kaydet</button></div>');
@@ -3280,7 +3299,7 @@ function managerAccounting(){
   const charges=state.charges.filter(c=>c.periodId===p.id), aidat=charges.filter(c=>c.type==='dues'||normTR(c.label||'').includes('AIDAT')), extraCharges=charges.filter(c=>!(c.type==='dues'||normTR(c.label||'').includes('AIDAT')));
   const cards=Object.values(BANK_PROFILES).map(b=>{const all=state.bankTransactions.filter(x=>x.bankId===b.id),inc=all.filter(x=>Number(x.amount)>0).reduce((a,x)=>a+Number(x.amount),0),out=Math.abs(all.filter(x=>Number(x.amount)<0).reduce((a,x)=>a+Number(x.amount),0));return `<div class="card"><div class="small muted">${esc(b.name)}</div><b>${esc(b.account)}</b><div class="small muted">${esc(b.iban)}</div><div style="margin-top:6px"><b class="ok">+${trMoney(inc)}</b> giriş · <b class="danger">-${trMoney(out)}</b> çıkış</div></div>`}).join('');
   const visibleBank=filteredBankTransactions(bank);
-  const rows=visibleBank.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(x=>{
+  const rows=visibleBank.slice().sort((a,b)=>bankDateSortKey(b).localeCompare(bankDateSortKey(a))||String(b.id).localeCompare(String(a.id))).map(x=>{
     const bp=bankProfile(x.bankId),alloc=txAllocated(x.id),income=Number(x.amount)>0;
     const match=effectiveBankMatch(x),suggested=match.suggested.map(id=>unit(id)).filter(Boolean);
     const suggestionHtml=income&&suggested.length?`<div class="notice" style="margin-top:8px"><b>Öneri: ${suggested.map(u=>u.label).join(' + ')}</b> · ${matchConfidenceLabel(match.confidence)}<br><span class="small">${esc(match.reason||'')}</span></div>`:income?`<div class="small muted" style="margin-top:7px">Daire önerisi bulunamadı.</div>`:'';
@@ -3291,7 +3310,7 @@ function managerAccounting(){
     const expenseCategoryHtml=!income?`<div class="txTools"><label>Gider kategorisi<select id="bankCat_${x.id}">${expenseCategoryOptions(suggestedCat)}</select></label><span class="badge">Öneri: ${esc(suggestedCat)}</span></div>`:'';
     const bulkCheck=eligible?`<label style="display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:8px;font-weight:700"><input class="bank-bulk-check" data-tx="${x.id}" type="checkbox" ${bankSelectedIds.has(x.id)?'checked':''} onchange="updateBulkBankBar()"> Doğru / Seç</label>`:(alreadyDone?`<div class="small ok" style="margin-top:8px">✓ İşlendi</div>`:'');
     const expenseButton=!income&&!x.expenseId?`<button onclick="openBankExpense('${x.id}')">Gider Olarak İşle</button>`:'';
-    return `<div class="bankTx ${income?'income':'expense'} ${alreadyDone?'done':'pending'}"><div class="txTop"><div><b>${x.date} · ${esc(bp.name)}</b><div class="txMeta">${esc(bp.account)} · ${esc(x.reference||'Referans yok')}</div><div class="txDesc">${esc(x.description)}</div></div><div><div class="txAmount ${income?'ok':'danger'}">${trMoney(x.amount)}</div><div class="txStatus ${alreadyDone?'ok':'warn'}">${esc(bankTxStatus(x))}</div>${bulkCheck}</div></div>${suggestionHtml}${expenseCategoryHtml}${income?`<div class="small" style="margin-top:7px">Dağıtılan ${trMoney(alloc)} · Dağıtılmamış ${trMoney(Math.max(0,Number(x.amount)-alloc))}</div><div class="actions" style="margin-top:7px"><button onclick="openBankAllocation('${x.id}')">Dağılımı Düzenle</button>${autoButton}</div>`:`<div class="actions" style="margin-top:7px">${expenseButton}</div>`}</div>`;
+    return `<div class="bankTx ${income?'income':'expense'} ${alreadyDone?'done':'pending'}"><div class="txTop"><div><b>${esc(movementDateLabel(x))} · ${esc(bp.name)}</b><div class="txMeta">${esc(bp.account)} · ${esc(x.reference||'Referans yok')}</div><div class="txDesc">${esc(x.description)}</div></div><div><div class="txAmount ${income?'ok':'danger'}">${trMoney(x.amount)}</div><div class="txStatus ${alreadyDone?'ok':'warn'}">${esc(bankTxStatus(x))}</div>${bulkCheck}</div></div>${suggestionHtml}${expenseCategoryHtml}${income?`<div class="small" style="margin-top:7px">Dağıtılan ${trMoney(alloc)} · Dağıtılmamış ${trMoney(Math.max(0,Number(x.amount)-alloc))}</div><div class="actions" style="margin-top:7px"><button onclick="openBankAllocation('${x.id}')">Dağılımı Düzenle</button>${autoButton}</div>`:`<div class="actions" style="margin-top:7px">${expenseButton}</div>`}</div>`;
   }).join('');
   const expByCat=expenseCategories().map(cat=>({cat,total:ex.filter(e=>e.category===cat).reduce((a,e)=>a+Number(e.amount||0),0)})).filter(x=>x.total>0);
   const c=`${periodSelect()}<div class="bankSummary"><div class="card compactCard"><div class="small muted">Onay bekleyen banka hareketi</div><div class="kval warn">${unmatched.length + outgoing.filter(x=>!x.expenseId).length}</div></div><div class="card compactCard"><div class="small muted">Bu ay banka girişi</div><div class="kval ok">${trMoney(incoming.reduce((a,x)=>a+Number(x.amount||0),0))}</div></div><div class="card compactCard"><div class="small muted">Bu ay banka çıkışı</div><div class="kval danger">${trMoney(Math.abs(outgoing.reduce((a,x)=>a+Number(x.amount||0),0)))}</div></div></div><div class="grid4" style="margin-top:8px"><div class="card kpi"><div class="klabel">Aidat Tahakkuku</div><div class="kval">${trMoney(aidat.reduce((a,x)=>a+Number(x.amount||0),0))}</div></div><div class="card kpi"><div class="klabel">Ek Borç / Tahakkuk</div><div class="kval">${trMoney(extraCharges.reduce((a,x)=>a+Number(x.amount||0),0))}</div></div><div class="card kpi"><div class="klabel">Tahsilat</div><div class="kval">${trMoney(pays.reduce((a,x)=>a+Number(x.amount||0),0))}</div></div><div class="card kpi"><div class="klabel">Gider</div><div class="kval">${trMoney(ex.reduce((a,x)=>a+Number(x.amount||0),0))}</div></div></div>
@@ -3458,10 +3477,10 @@ function importBankWorkbook(wb,fileName,{balanceOnly=false,expectedBank=null,per
   for(const row of balanceOnly?[]:rows){
     const {amount,description,reference}=row,date=row.key.slice(0,10);
     if(!amount||!description)continue;
-    const dedupe=`${bp.id}|${reference||''}|${date}|${amount}|${description}`; if(state.bankTransactions.some(x=>x.dedupeKey===dedupe)){skipped++;continue}
+    const dedupe=`${bp.id}|${reference||''}|${date}|${amount}|${description}`; const previous=state.bankTransactions.find(x=>x.dedupeKey===dedupe); if(previous){if(row.key.includes('T')&&!bankTxDateTime(previous).includes('T')){previous.statementKey=row.key;previous.dateTime=row.key;}skipped++;continue}
     const match=bankMatchFor(description+' '+reference,date),suggested=match.suggested,confidence=match.confidence,matchReason=match.reason;
     if(suggested.length)autoHints++;
-    const tx={id:uid('bt'),periodId:periodIdForDate(date),bankId:bp.id,bankName:bp.name,bankAccount:bp.short,date,amount,description,reference,dedupeKey:dedupe,direction:amount>0?'income':'expense',suggestedUnitIds:suggested,matchConfidence:confidence,matchReason,sourceFile:fileName,statementBalance:row.balance,statementKey:row.key};
+    const tx={id:uid('bt'),dateTime:row.key.includes('T')?row.key:null,periodId:periodIdForDate(date),bankId:bp.id,bankName:bp.name,bankAccount:bp.short,date,amount,description,reference,dedupeKey:dedupe,direction:amount>0?'income':'expense',suggestedUnitIds:suggested,matchConfidence:confidence,matchReason,sourceFile:fileName,statementBalance:row.balance,statementKey:row.key};
     state.bankTransactions.push(tx);added++;
     if(amount>0 && confidence==='high' && suggested.length===1){ if(bulkAutoAllocateIncome(tx)) tx.autoProcessed=true; }
   }
@@ -3533,14 +3552,14 @@ function openChargesForUnit(unitId,excludeTxId=null){return state.charges.filter
 let allocSeq=0,allocTxId=null;
 function openBankAllocation(txId){
   const tx=state.bankTransactions.find(x=>x.id===txId);if(!tx)return;allocTxId=txId;allocSeq=0;const existing=state.payments.filter(p=>p.bankTransactionId===txId);const bp=bankProfile(tx.bankId),suggest=effectiveBankMatch(tx).suggested?.[0]||'';
-  openModal(`<h2>Ödeme Dağıtımı</h2><div class="notice"><b>${esc(bp.name)} · ${tx.date} · ${trMoney(tx.amount)}</b><br>${esc(tx.description)}</div><div id="allocRows" class="stack" style="margin-top:10px"></div><div class="actions" style="margin-top:10px"><button onclick="addAllocationRow('${suggest}')">+ Dağıtım Satırı</button><button class="primary" onclick="saveBankAllocation()">Dağılımı Kaydet</button></div><div id="allocTotal" class="notice" style="margin-top:10px"></div>`);
+  openModal(`<h2>Ödeme Dağıtımı</h2><div class="notice"><b>${esc(bp.name)} · ${esc(movementDateLabel(tx))} · ${trMoney(tx.amount)}</b><br>${esc(tx.description)}</div><div id="allocRows" class="stack" style="margin-top:10px"></div><div class="actions" style="margin-top:10px"><button onclick="addAllocationRow('${suggest}')">+ Dağıtım Satırı</button><button class="primary" onclick="saveBankAllocation()">Dağılımı Kaydet</button></div><div id="allocTotal" class="notice" style="margin-top:10px"></div>`);
   if(existing.length)existing.forEach(p=>addAllocationRow(p.unitId,p.chargeId||'',p.amount)); else addAllocationRow(suggest,'',Math.max(0,Math.round((Number(tx.amount)-txAllocated(tx.id))*100)/100));updateAllocationTotal();
 }
 function addAllocationRow(unitId='',chargeId='',amount=''){const id=`al_${++allocSeq}`,wrap=$('#allocRows'),opts=state.units.map(u=>`<option value="${u.id}" ${u.id===unitId?'selected':''}>${u.label} · ${esc(occupantOf(u.id)?.name || '')}</option>`).join('');wrap.insertAdjacentHTML('beforeend',`<div class="card" id="${id}"><div class="grid3"><label>Daire / Dükkan<select class="alUnit" onchange="refreshAllocationCharges('${id}')">${opts}</select></label><label>Borç kalemi<select class="alCharge"></select></label><label>Tutar<input class="alAmount" type="number" step="0.01" value="${amount===''?'':Number(amount).toFixed(2)}" oninput="updateAllocationTotal()"></label></div><button class="dangerBtn" style="margin-top:8px" onclick="document.getElementById('${id}').remove();updateAllocationTotal()">Satırı Sil</button></div>`);refreshAllocationCharges(id,chargeId)}
 function refreshAllocationCharges(rowId,selected=''){const box=document.getElementById(rowId),u=box.querySelector('.alUnit').value,sel=box.querySelector('.alCharge'),open=openChargesForUnit(u,allocTxId);sel.innerHTML=`<option value="">Genel ödeme / avans</option>`+open.map(c=>`<option value="${c.id}" ${c.id===selected?'selected':''}>${isoMonthLabel(period(c.periodId)?.month||activePeriodId)} · ${esc(c.label||c.type)} · kalan ${trMoney(c.remaining)}</option>`).join('')}
 function updateAllocationTotal(){const tx=state.bankTransactions.find(x=>x.id===allocTxId),sum=$$('#allocRows .alAmount').reduce((a,i)=>a+Number(i.value||0),0),el=$('#allocTotal');if(el&&tx)el.innerHTML=`Dağıtılan <b>${trMoney(sum)}</b> · Banka hareketi <b>${trMoney(tx.amount)}</b> · Kalan <b>${trMoney(Math.max(0,Number(tx.amount)-sum))}</b>`}
-function saveBankAllocation(){const tx=state.bankTransactions.find(x=>x.id===allocTxId);if(!tx)return;const rows=$$('#allocRows .card').map(box=>({unitId:box.querySelector('.alUnit').value,chargeId:box.querySelector('.alCharge').value,amount:Number(box.querySelector('.alAmount').value||0)})).filter(x=>x.amount>0);const sum=rows.reduce((a,x)=>a+x.amount,0);if(sum-Number(tx.amount)>0.005){notify('Dağıtım toplamı banka hareketinden büyük olamaz.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);const bp=bankProfile(tx.bankId);rows.forEach(r=>{const c=state.charges.find(x=>x.id===r.chargeId),matched=effectiveBankMatch(tx),pid=c?.personId||(matched.suggested.length===1&&matched.suggested[0]===r.unitId?matched.personId:null);state.payments.push({id:uid('pay'),periodId:c?.periodId||tx.periodId||activePeriodId,unitId:r.unitId,personId:pid,amount:r.amount,date:tx.date,description:`${bp.name} banka ödemesi · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:r.chargeId||null,reference:tx.reference})});tx.allocatedAmount=sum;saveState();logAudit('Banka ödemesi dağıtıldı',`${bp.name} · ${trMoney(sum)}`);closeModal();render();notify('Banka ödemesi dağıtıldı.')}
-function autoAllocateBankTransaction(txId){const tx=state.bankTransactions.find(x=>x.id===txId),match=tx?effectiveBankMatch(tx):null,u=match?.suggested?.length===1?match.suggested[0]:null;if(!tx||!u||match.confidence!=='high'||Number(tx.amount)<=0||txAllocated(tx.id)>0){notify('Tek ve kesin daire önerisi gerekli; kısmi dağıtılmış hareketi yeniden otomatik işleme.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);let remain=Number(tx.amount),bp=bankProfile(tx.bankId),matched=matchedPersonForTx(tx),opens=matched?openChargesForUnit(u,tx.id).filter(c=>chargeAccountPersonId(c)===matched):[];for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:matched,amount:a,date:tx.date,description:`${bp.name} otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matched,amount:remain,date:tx.date,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});tx.allocatedAmount=Number(tx.amount);saveState();logAudit('Banka ödemesi otomatik eşleşti',`${unit(u).label} · ${trMoney(tx.amount)}`);render();notify(`${unit(u).label} için ödeme işlendi.`)}
+function saveBankAllocation(){const tx=state.bankTransactions.find(x=>x.id===allocTxId);if(!tx)return;const rows=$$('#allocRows .card').map(box=>({unitId:box.querySelector('.alUnit').value,chargeId:box.querySelector('.alCharge').value,amount:Number(box.querySelector('.alAmount').value||0)})).filter(x=>x.amount>0);const sum=rows.reduce((a,x)=>a+x.amount,0);if(sum-Number(tx.amount)>0.005){notify('Dağıtım toplamı banka hareketinden büyük olamaz.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);const bp=bankProfile(tx.bankId);rows.forEach(r=>{const c=state.charges.find(x=>x.id===r.chargeId),matched=effectiveBankMatch(tx),pid=c?.personId||(matched.suggested.length===1&&matched.suggested[0]===r.unitId?matched.personId:null);state.payments.push({id:uid('pay'),periodId:c?.periodId||tx.periodId||activePeriodId,unitId:r.unitId,personId:pid,amount:r.amount,date:tx.date,dateTime:bankTxDateTime(tx)||null,description:`${bp.name} banka ödemesi · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:r.chargeId||null,reference:tx.reference})});tx.allocatedAmount=sum;saveState();logAudit('Banka ödemesi dağıtıldı',`${bp.name} · ${trMoney(sum)}`);closeModal();render();notify('Banka ödemesi dağıtıldı.')}
+function autoAllocateBankTransaction(txId){const tx=state.bankTransactions.find(x=>x.id===txId),match=tx?effectiveBankMatch(tx):null,u=match?.suggested?.length===1?match.suggested[0]:null;if(!tx||!u||match.confidence!=='high'||Number(tx.amount)<=0||txAllocated(tx.id)>0){notify('Tek ve kesin daire önerisi gerekli; kısmi dağıtılmış hareketi yeniden otomatik işleme.');return}state.payments=state.payments.filter(p=>p.bankTransactionId!==tx.id);let remain=Number(tx.amount),bp=bankProfile(tx.bankId),matched=matchedPersonForTx(tx),opens=matched?openChargesForUnit(u,tx.id).filter(c=>chargeAccountPersonId(c)===matched):[];for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:matched,amount:a,date:tx.date,dateTime:bankTxDateTime(tx)||null,description:`${bp.name} otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matched,amount:remain,date:tx.date,dateTime:bankTxDateTime(tx)||null,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});tx.allocatedAmount=Number(tx.amount);saveState();logAudit('Banka ödemesi otomatik eşleşti',`${unit(u).label} · ${trMoney(tx.amount)}`);render();notify(`${unit(u).label} için ödeme işlendi.`)}
 
 
 function managerAccounts(){
@@ -3599,7 +3618,7 @@ function personLedgerReportData(unitId,personId){
     ...entries.payments.map(pay=>{
       const d=bankPaymentDetails(pay);
       return {
-        date:pay.date||'',period:pay.periodId?(state.periods.find(x=>x.id===pay.periodId)?.month||''):'',
+        date:paymentDateTime(pay),period:pay.periodId?(state.periods.find(x=>x.id===pay.periodId)?.month||''):'',
         due:'',kind:'Ödeme',detail:d.bank+(d.description&&d.description!=='Açıklama bulunmuyor'?' · '+d.description:''),
         debit:0,credit:Math.round(Number(pay.amount||0)*100),id:pay.id
       };
@@ -3624,7 +3643,7 @@ function personStatementDate(value){
 function personLedgerReportMarkup(data){
   const date=new Intl.DateTimeFormat('tr-TR',{dateStyle:'long',timeStyle:'short'}).format(data.generated);
   const rows=data.rows.length?data.rows.map((r,i)=>
-    '<tr><td class="center">'+(i+1)+'</td><td>'+esc(personStatementDate(r.date))+'</td><td>'+esc(r.period||'—')+'</td>'+
+    '<tr><td class="center">'+(i+1)+'</td><td>'+esc(movementDateLabel(r.date).replace(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/,'$3.$2.$1'))+'</td><td>'+esc(r.period||'—')+'</td>'+
     '<td class="kind '+(r.kind==='Ödeme'?'payment':'')+'">'+esc(r.kind)+'</td>'+
     '<td class="description">'+esc(r.detail||'—')+(r.due?'<div class="tiny">Son ödeme: '+esc(personStatementDate(r.due))+'</div>':'')+'</td>'+
     '<td class="money">'+(r.debit?esc(personStatementMoney(r.debit)):'—')+'</td>'+
@@ -5462,8 +5481,8 @@ function bulkAutoAllocateIncome(tx){
   const match=effectiveBankMatch(tx),u=match.suggested.length===1?match.suggested[0]:null;
   if(!tx||!u||!['high','manual'].includes(match.confidence)||Number(tx.amount)<=0||txAllocated(tx.id)>0)return false;
   let remain=Number(tx.amount),bp=bankProfile(tx.bankId),matched=matchedPersonForTx(tx),opens=matched?openChargesForUnit(u,tx.id).filter(c=>chargeAccountPersonId(c)===matched):[];
-  for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:matched,amount:a,date:tx.date,description:`${bp.name} toplu otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}
-  if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matched,amount:remain,date:tx.date,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});
+  for(const c of opens){if(remain<=0.005)break;const a=Math.min(remain,c.remaining);state.payments.push({id:uid('pay'),periodId:c.periodId,unitId:u,personId:matched,amount:a,date:tx.date,dateTime:bankTxDateTime(tx)||null,description:`${bp.name} toplu otomatik eşleşme · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:c.id,reference:tx.reference});remain-=a}
+  if(remain>0.005)state.payments.push({id:uid('pay'),periodId:tx.periodId||activePeriodId,unitId:u,personId:matched,amount:remain,date:tx.date,dateTime:bankTxDateTime(tx)||null,description:`${bp.name} genel ödeme / avans · ${tx.description}`,bankId:tx.bankId,bankName:bp.name,bankAccount:bp.short,bankTransactionId:tx.id,chargeId:null,reference:tx.reference});
   tx.allocatedAmount=Number(tx.amount);return true;
 }
 function bulkCreateExpense(tx){
