@@ -2540,6 +2540,13 @@ function openUnitCenter(unitId){
     const d=cs.reduce((n,c)=>n+Number(c.amount||0),0),pay=ps.reduce((n,x)=>n+Number(x.amount||0),0);
     return '<div class="row"><span>'+esc(periodListLabel(pr.month))+'</span><span>Borç '+trMoney(d)+' · Ödeme '+trMoney(pay)+'</span><b>'+trMoney(d-pay)+'</b></div>';
   }).join('');
+  const personBalanceRows=[...new Map(rels.map(x=>[x.p.id,x.p])).values()].map(pp=>{
+    const ledger=personLedgerEntries(unitId,pp.id);
+    const debt=ledger.charges.reduce((n,c)=>n+Math.round(Number(c.amount||0)*100),0)/100;
+    const paid=ledger.payments.reduce((n,x)=>n+Math.round(Number(x.amount||0)*100),0)/100;
+    return '<tr><td><button onclick="openPersonLedger(\''+unitId+'\',\''+pp.id+'\')">'+esc(pp.name)+'</button></td><td class="num">'+trMoney(debt)+'</td><td class="num">'+trMoney(paid)+'</td><td class="num"><b>'+trMoney(debt-paid)+'</b></td></tr>';
+  }).join('');
+  const personBalances='<details class="card" open style="margin-top:10px"><summary><b>Kişi Bazında Cari Bakiyeler</b> · Devredilen borç yeni sorumluda görünür</summary><div class="tableWrap"><table class="compactLedger"><thead><tr><th>Kişi</th><th>Borç</th><th>Ödeme</th><th>Bakiye</th></tr></thead><tbody>'+personBalanceRows+'</tbody></table></div><div class="small muted">Dairenin genel toplamı bütün kişileri ve atanmamış borçları içerir. Kişi carisi yalnızca o kişinin kayıtlarını gösterir.</div></details>';
   const ledgerTable=ledgerRowsHTML(unitId,f.charges,f.payments);
   const unresolved=f.charges.filter(c=>!chargeAccountPersonId(c)).length;
   openModal(`<div class="unitCenterHead"><button onclick="closeModal();go('units')">← Dairelere Dön</button><div><h2>${u.label} · Daire Merkezi</h2><div class="small muted">${u.type==='apartment'?u.sqm+' m²':'Aidat katsayısı '+u.duesMultiplier} · tüm bilgiler tek ekranda</div></div><span class="badge">${APP_VERSION}</span></div>
@@ -2549,7 +2556,7 @@ function openUnitCenter(unitId){
   <div class="card" style="margin-top:12px"><div class="sectionHead"><h3>Gelir – Gider / Borç Tahakkuk Hareketleri</h3><button onclick="openUnitLedger('${unitId}')">Detaylı Cari</button></div>
     <div class="small muted">Gelir: ödeme tarihi ve banka. Gider: borç dönemi, son ödeme tarihi ve toplam. Ayrıntı için Kalemler'i aç.</div>
     ${unresolved?'<div class="notice warn">Sorumlusu henüz belirlenmemiş '+unresolved+' borç kalemi var. <button onclick="openUnassignedLedger(\''+unitId+'\')">Atanmamış Borçları İncele</button></div>':''}
-    ${ledgerTable}</div>
+    ${personBalances}${ledgerTable}</div>
   <div class="unitLateFeeBox"><div><b>Gecikme faizi yönetimi</b><div class="small muted">Bu daire için biriken faizi sıfırla veya seçili dönemi faizden muaf tut.</div></div><div class="actions"><button class="dangerBtn" onclick="openUnitLateFeeControl('${unitId}')">Faizi Yönet</button></div></div>
   <div class="actions" style="margin-top:10px"><button class="primary" onclick="closeModal();openPaymentForUnit('${unitId}')">+ Manuel Ödeme</button><button onclick="openLegacyDebtEntry('${unitId}')">+ Geçmiş Borç</button><button onclick="openHouseholdPersonForm('${unitId}')">+ Kişi Ekle</button><button class="primary" onclick="openDebtSplit('${unitId}')">Aylık Borcu İki Kişiye Böl</button><button onclick="openUnitNotificationEmails('${unitId}')">Daire E-postaları</button><button onclick="closeModal();openUnitLedger('${unitId}')">Detaylı Cari</button></div>
   ${u.type==='apartment'?'<details class="card" style="margin-top:8px"><summary><b>Daire Ayarları · Yönetici Aidatı</b></summary><div style="margin-top:8px"><label class="switch"><input id="unitManagerExempt" type="checkbox" '+(state.settings.defaultManagerDuesExemptUnitId===unitId?'checked':'')+'> Bu daire apartman yöneticisine ait; gelecek aylarda normal aidat alma</label><p class="small muted">Su, gaz ve elektrik muaf değildir. Geçmişte kapanmış veya hesaplanmış dönemler otomatik değişmez.</p><button class="primary" onclick="saveUnitManagerExemption(\'${unitId}\')">Aidat Muafiyetini Kaydet</button></div></details>':''}
