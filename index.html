@@ -415,7 +415,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.47';
+const APP_VERSION = 'V1.48';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -1706,7 +1706,7 @@ async function managerReportArchive(){
   }catch(e){return shell(`<div class="notice danger">${esc(e.message||'Arşiv yüklenemedi.')}</div>`,nav)}
 }
 function periodSelect(){
-  return `<label>Dönem<select id="periodSel" onchange="activePeriodId=this.value;render()">${state.periods.map(p=>`<option value="${p.id}" ${p.id===activePeriodId?'selected':''}>${isoMonthLabel(p.month)} · ${p.status==='locked'?'Kesinleşti':'Taslak'}</option>`).join('')}</select></label>`;
+  return `<label>Dönem<select id="periodSel" onchange="activePeriodId=this.value;render()">${state.periods.map(p=>`<option value="${p.id}" ${p.id===activePeriodId?'selected':''}>${periodDisplayName(p)} · ${p.status==='locked'?'Kesinleşti':'Taslak'}</option>`).join('')}</select></label>`;
 }
 
 function totalReceivables(){
@@ -1862,6 +1862,50 @@ function managerHome(){
 let periodListYear='all';
 let periodListMonth='all';
 const MONTH_LABELS_TR=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+function validArchiveMonth(value){return /^(20\d{2})-(0[1-9]|1[0-2])$/.test(String(value||''));}
+function archiveMonthAfter(month){
+  if(!validArchiveMonth(month))return '';
+  const [y,m]=month.split('-').map(Number);
+  return (m===12?y+1:y)+'-'+String(m===12?1:m+1).padStart(2,'0');
+}
+function archiveRangeStart(start,end){
+  if(!validArchiveMonth(end))throw new Error('Dönemin bitiş ayını seçin.');
+  if(!start||start===end)return end;
+  if(!validArchiveMonth(start)||archiveMonthAfter(start)!==end)
+    throw new Error('Ortak dönem yalnızca art arda gelen iki aydan oluşmalı (ör. 2025 Eylül–Ekim).');
+  return start;
+}
+function archivePeriodLabel(start,end){
+  const a=archiveRangeStart(start,end);
+  return a===end?periodListLabel(end):periodListLabel(a)+' – '+periodListLabel(end);
+}
+function periodDisplayName(p){
+  if(!p)return 'Dönem belirsiz';
+  return archivePeriodLabel(p.startMonth,p.month);
+}
+function archiveExistingPeriodConflict(start,end){
+  const from=archiveRangeStart(start,end);
+  if(from===end)return null;
+  const separate=state.periods.find(p=>p.month===from);
+  if(separate&&(
+    state.charges.some(c=>c.periodId===separate.id)||
+    state.meterReadings.some(r=>r.periodId===separate.id)||
+    state.invoices.some(i=>i.periodId===separate.id)||
+    state.payments.some(i=>i.periodId===separate.id)
+  ))return from+' için ayrı hesaplanmış işlemler var. Mükerrerlik riski nedeniyle ortak dönem aktarımı durduruldu.';
+  const endPeriod=state.periods.find(p=>p.month===end);
+  if(endPeriod){
+    const existingStart=endPeriod.startMonth||end;
+    if(existingStart!==from&&(
+      state.charges.some(c=>c.periodId===endPeriod.id)||
+      state.meterReadings.some(r=>r.periodId===endPeriod.id)||
+      state.invoices.some(i=>i.periodId===endPeriod.id)||
+      state.payments.some(i=>i.periodId===endPeriod.id)
+    ))return end+' için tek ay üzerinden oluşturulmuş işlemler var. Önce kayıtları inceleyip birleştirin.';
+  }
+  return null;
+}
+
 function periodListLabel(month){
   const match=/^(\d{4})-(\d{2})$/.exec(String(month||''));
   if(!match)return isoMonthLabel(String(month||''));
@@ -1871,7 +1915,7 @@ function filteredPeriodsDescending(){
   return [...state.periods].filter(p=>{
     const month=String(p.month||'');
     return (periodListYear==='all'||month.slice(0,4)===periodListYear)
-      &&(periodListMonth==='all'||month.slice(5,7)===periodListMonth);
+      &&(periodListMonth==='all'||month.slice(5,7)===periodListMonth||String(p.startMonth||'').slice(5,7)===periodListMonth);
   }).sort((a,b)=>String(b.month||'').localeCompare(String(a.month||'')));
 }
 function periodListFilterBar(){
@@ -1894,7 +1938,7 @@ function setPeriodListFilter(kind,value){
 }
 function managerPeriods(){
   const periods=filteredPeriodsDescending();
-  const rows=periods.map(p=>{const ex=managerDuesExemptionText(p);return `<div class="listitem"><div class="sectionHead"><div><b>${periodListLabel(p.month)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · Aidat ${trMoney(p.dues)} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'}</div><div class="small ${p.managerDuesExemptUnitId?'ok':'muted'}">${ex}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div><div style="margin-top:9px">${p.status!=='locked'?dueDateEditor(p,true):''}</div><div class="actions" style="margin-top:9px"><button onclick="activePeriodId='${p.id}';go('periodDetail')">Aç</button>${p.status!=='locked'?`<button class="primary" onclick="activePeriodId='${p.id}';lockPeriod()">Kesinleştir</button>`:''}</div></div>`}).join('');
+  const rows=periods.map(p=>{const ex=managerDuesExemptionText(p);return `<div class="listitem"><div class="sectionHead"><div><b>${periodDisplayName(p)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · Aidat ${trMoney(p.dues)} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'}</div><div class="small ${p.managerDuesExemptUnitId?'ok':'muted'}">${ex}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div><div style="margin-top:9px">${p.status!=='locked'?dueDateEditor(p,true):''}</div><div class="actions" style="margin-top:9px"><button onclick="activePeriodId='${p.id}';go('periodDetail')">Aç</button>${p.status!=='locked'?`<button class="primary" onclick="activePeriodId='${p.id}';lockPeriod()">Kesinleştir</button>`:''}</div></div>`}).join('');
   const c=`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Yeni dönemi yönetici açar.</div></div><div class="actions"><button onclick="openTwoMonthCalculation()">İki Ayı Birlikte Hesapla</button><button class="primary" onclick="openNewPeriod()">+ Yeni Dönem</button></div></div>${periodListFilterBar()}<div class="muted small" style="margin-top:10px">${periods.length} dönem listeleniyor · En yeni dönem üstte</div><div class="list" style="margin-top:10px">${rows||'<div class="notice">Seçilen filtrelere uygun dönem bulunamadı.</div>'}</div>`;
   return shell(c,[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'units',ico:'🏠',label:'Bölümler'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}]);
 }
@@ -2074,7 +2118,7 @@ function bankNameForPayment(p){
 }
 function chargePeriodName(c){
   const month=state.periods.find(p=>p.id===c.periodId)?.month;
-  return month?periodListLabel(month):(c.dueDate?c.dueDate.slice(0,7):'Dönem belirsiz');
+  return month?periodDisplayName(state.periods.find(p=>p.id===c.periodId)):(c.dueDate?c.dueDate.slice(0,7):'Dönem belirsiz');
 }
 function ledgerDebtGroups(charges){
   const map=new Map();
@@ -3365,7 +3409,7 @@ async function pdfArchiveTables(file,mode,progress){
         if(auto){
           const info=pdfArchiveMetadata(raw,raw);
           if(!metadata)metadata=info;
-          else if(!info.month||metadata.month!==info.month||metadata.due!==info.due)
+          else if(!info.month||metadata.month!==info.month||metadata.startMonth!==info.startMonth||metadata.due!==info.due)
             throw new Error('Dosyanın sayfalarında dönem veya vade farklı.');
         }
         result.push(...nativeRows);
@@ -3444,11 +3488,22 @@ function pdfArchiveMetadata(header,footer){
   const text=sheetKey(header).replace(/\s+/g,' ');
   const named=new RegExp('\\b('+months.join('|')+')\\s+(20\\d{2})\\b').exec(text);
   const numeric=/\b(20\d{2})\s+(0?[1-9]|1[0-2])\b/.exec(text);
-  const month=named?named[2]+'-'+String(months.indexOf(named[1])+1).padStart(2,'0'):
-    numeric?numeric[1]+'-'+numeric[2].padStart(2,'0'):'';
+  const combined=new RegExp('\\b('+months.join('|')+')\\s*(?:-|/|VE|ILE)\\s*('+months.join('|')+')\\s+(20\\d{2})\\b').exec(text)
+    ||new RegExp('\\b(20\\d{2})\\s+('+months.join('|')+')\\s*(?:-|/|VE|ILE)\\s*('+months.join('|')+')\\b').exec(text);
+  let rangeStart='',rangeEnd='';
+  if(combined){
+    const y=Number(combined[1].startsWith('20')?combined[1]:combined[3]);
+    const first=combined[1].startsWith('20')?combined[2]:combined[1];
+    const last=combined[1].startsWith('20')?combined[3]:combined[2];
+    rangeEnd=y+'-'+String(months.indexOf(last)+1).padStart(2,'0');
+    rangeStart=(months.indexOf(first)>months.indexOf(last)?y-1:y)+'-'+String(months.indexOf(first)+1).padStart(2,'0');
+    if(archiveMonthAfter(rangeStart)!==rangeEnd){rangeStart='';rangeEnd='';}
+  }
+  const month=rangeEnd||(named?named[2]+'-'+String(months.indexOf(named[1])+1).padStart(2,'0'):
+    numeric?numeric[1]+'-'+numeric[2].padStart(2,'0'):'');
   const date=[...String(footer).matchAll(/\b\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*20\d{2}\b/g)]
     .map(match=>excelDateToISO(match[0].replace(/\s+/g,''))).filter(Boolean);
-  return {month,due:[...new Set(date)].length===1?date[0]:''};
+  return {month,startMonth:rangeStart||month,due:[...new Set(date)].length===1?date[0]:''};
 }
 async function readPdfArchiveMetadata(worker,pageImage,xs,ys){
   await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
@@ -3512,7 +3567,7 @@ function automaticPdfRecord(document,filename){
     }
     if(skippedGas)warnings.push(skippedGas+' gaz satırında PDF’nin tüketim sütunu endekslerle uyuşmuyor. Endeks farkından hesaplanan değerler önizlemede gösterilir.');
   }
-  return {context:{mode,month,due,scale:1,filename},sheets:[[columns,...rows]],warnings};
+  return {context:{mode,month,startMonth:document.startMonth||month,due,scale:1,filename},sheets:[[columns,...rows]],warnings};
 }
 function applyArchiveReadings(readings){
   for(const e of readings){
@@ -3572,7 +3627,7 @@ function renderArchivePdfImport(output,entries,scope,edit){
       const p=record?.context||doc;const mode=p?.mode==='meter'?'Tüketim':'Borç';
       const note=error?'<div class="small danger">'+esc(error)+'</div>':
         '<div class="small ok">PDF okundu. Sayıları ve daireleri kontrol edin.</div>';
-      return '<div class="listitem archiveImportItem"><div><b>'+esc(file.name)+'</b><div class="small muted">'+esc(mode)+' · PDF içindeki dönem: '+esc(p?.month?isoMonthLabel(p.month):'Okunamadı')+
+      return '<div class="listitem archiveImportItem"><div><b>'+esc(file.name)+'</b><div class="small muted">'+esc(mode)+' · PDF içindeki dönem: '+esc(p?.month?archivePeriodLabel(p.startMonth,p.month):'Okunamadı')+
         ' · Son ödeme: '+esc(p?.due||'—')+'</div>'+note+'</div>'+
         (doc?'<button type="button" class="primary" data-pdf-edit="'+i+'">Kontrol et ve önizle</button>':
           '<span class="small danger">Belge okunamadı; dosyayı yeniden yükleyin.</span>')+'</div>';
@@ -3723,7 +3778,7 @@ function openHistoricalArchive(){
   if(session?.role!=='manager')return;
   openModal('<h2>Geçmiş dönem aktarımı</h2>'+
     '<form class="card stack" id="archiveDirectPdf"><h3>PDF aktarımı</h3>'+
-    '<p class="small muted">Bir veya birden fazla aya ait PDF seçin. Dosyaları okuyup kontrol ettikten sonra sisteme yükleyin.</p>'+
+    '<p class="small muted">Tek bir PDF Eylül–Ekim gibi iki ayı birlikte kapsıyorsa <b>Kontrol et ve önizle</b> ekranında <b>İki ay tek dönem</b> seç. Aylar tek borç olarak kaydedilir.</p>'+
     '<label>Aktarılacak kayıtlar<select name="scope"><option value="">Borç ve tüketim</option><option value="debt">Sadece borç</option><option value="meter">Sadece tüketim</option></select></label>'+
     '<label>PDF dosyaları<input type="file" name="files" accept=".pdf" multiple required></label>'+
     '<button class="primary" type="submit">PDF’leri oku</button><div data-pdf-results aria-live="polite"></div></form>'+
