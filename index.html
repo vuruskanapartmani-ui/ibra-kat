@@ -3643,12 +3643,14 @@ function debtResponsibilityOptions(unitId,month){
     relevant:!!overlaps({r})}));
 }
 function defaultDebtPerson(e){
-  const relevant=unitRelationships(e.unit.id).filter(({r})=>(r.startDate||r.endDate)&&
-    (!r.startDate||r.startDate<=monthEnd(e.month))&&(!r.endDate||r.endDate>=e.month+'-01'));
-  const tenants=relevant.filter(({r})=>['tenant','occupant'].includes(r.role));
-  const people=[...new Set((tenants.length?tenants:relevant).map(({p})=>p.id))];
-  const wholeMonth=(tenants.length?tenants:relevant).some(({r})=>r.startDate&&r.startDate<=e.month+'-01'&&(!r.endDate||r.endDate>=monthEnd(e.month)));
-  return people.length===1&&wholeMonth?people[0]:'';
+  const start=archiveRangeStart(e.startMonth,e.month)+'-01',end=monthEnd(e.month);
+  const rels=unitRelationships(e.unit.id);
+  const overlapping=rels.filter(({r})=>['tenant','owner'].includes(r.role)&&
+    (!r.startDate||r.startDate<=end)&&(!r.endDate||r.endDate>=start));
+  const tenants=overlapping.filter(({r})=>r.role==='tenant');
+  const chosen=tenants.length?tenants:overlapping.filter(({r})=>r.role==='owner');
+  return chosen.length===1&&chosen[0].r.startDate&&chosen[0].r.startDate<=start&&
+    (!chosen[0].r.endDate||chosen[0].r.endDate>=end)?chosen[0].p.id:'';
 }
 function debtAllocationKey(e){return [e.month,e.unit.id,e.type].join('|')}
 function debtCents(amount){return Math.round(Number(amount)*100)}
@@ -3748,10 +3750,13 @@ function applyArchiveDebtSplits(entries,selections,preview){
     const allowed=new Set(debtResponsibilityOptions(e.unit.id,e.month).map(o=>o.id));
     if(shares.some(p=>p.personId&&!allowed.has(p.personId)))throw new Error('Kişi ilişkileri değişti. Önizlemeyi yenileyin.');
     let p=state.periods.find(p=>p.month===e.month);
+    const start=archiveRangeStart(e.startMonth,e.month);
+    const clash=archiveExistingPeriodConflict(start,e.month);
+    if(clash)throw new Error(clash);
     if(!p){
-      p={id:uid('p'),month:e.month,dueDate:e.due,status:'locked',legacyOnly:true,boilerActive:false,dues:0};
+      p={id:uid('p'),month:e.month,startMonth:start===e.month?null:start,dueDate:e.due,status:'locked',legacyOnly:true,boilerActive:false,dues:0};
       state.periods.push(p);
-    }
+    }else if(start!==e.month){p.startMonth=start;}
     const existing=e.existingAllocation||[];
     if(existing.length===shares.length&&shares.every(s=>existing.some(c=>(c.personId||null)===s.personId&&debtCents(c.amount)===debtCents(s.amount)&&c.dueDate===e.due)))continue;
     // Keep unchanged shares and their record IDs. Any charge linked to a payment was excluded above.
@@ -3901,20 +3906,31 @@ function collectArchiveBatch(records){
   for(const {context,sheets} of records){
     if(context.mode==='debt'){
       const part=parseHistoricalDebtSheet(sheets,context.month,context.due);
-      const chosen=part.entries;
+      const start=archiveRangeStart(context.startMonth,context.month);
+      const conflict=archiveExistingPeriodConflict(start,context.month);
+      if(conflict)errors.push(context.filename+' · '+conflict);
+      const chosen=part.entries.filter(e=>{
+        if(start===context.month||e.month===context.month||e.month===start)return true;
+        errors.push(context.filename+' · '+e.month+' başka döneme ait. İki aylık ortak kayıt için uygun değil.');
+        return false;
+      });
       otherPeriods+=chosen.filter(e=>e.month!==context.month).length;
-      chosen.forEach(e=>debtEntries.push({...e,note:e.note||context.filename}));
+      chosen.forEach(e=>debtEntries.push({...e,month:context.month,startMonth:start,
+        personId:start===context.month?e.personId:null,note:e.note||context.filename}));
       errors.push(...part.errors.map(e=>context.filename+' · '+e));
       continue;
     }
-    const p=state.periods.find(p=>p.month===context.month)||{id:'archive_'+context.month,month:context.month,legacyOnly:true,
+    const start=archiveRangeStart(context.startMonth,context.month);
+    const conflict=archiveExistingPeriodConflict(start,context.month);
+    if(conflict)errors.push(context.filename+' · '+conflict);
+    const p=state.periods.find(p=>p.month===context.month)||{id:'archive_'+context.month,month:context.month,startMonth:start===context.month?null:start,legacyOnly:true,
       status:'locked',dueDate:context.due||monthEnd(context.month),dues:0,boilerActive:false};
     const data=context.omitGas?sheets.map(sheet=>{
       const header=sheet.find(row=>row.some(c=>formMeterType(c)))||[];
       return sheet.map(row=>row.map((cell,index)=>formMeterType(header[index])==='gas'?'':cell));
     }):sheets;
     const part=readFormMeters(data,p,context.scale,{historical:true});
-    if(!meterGroups.has(p.month))meterGroups.set(p.month,{p,entries:[]});
+    if(!meterGroups.has(p.month))meterGroups.set(p.month,{p,entries:[],startMonth:start});
     meterGroups.get(p.month).entries.push(...part.entries.map(e=>({...e,filename:context.filename,time:''})));
     errors.push(...part.errors.map(e=>context.filename+' · '+e));
   }
@@ -3948,7 +3964,7 @@ function renderArchiveBatchPlan(output,records){
     plan.errors.map(e=>'<p class="danger">'+esc(e)+'</p>').join('')+
     (plan.errors.length?'<p>'+esc(archivePdfHelp(plan.errors[0]))+'</p>':'')+
     (plan.debt.length?'<p>Her borcu açarak sorumluyu ve tutarı belirleyin. Bir ayın tamamında tek tarihli sorumlu varsa önerilir. Geçiş aylarında dağılımı kendiniz yapabilirsiniz.</p>':'')+
-    plan.debt.map(e=>'<details class="card" data-allocation><summary>'+esc(e.unit.label)+' · '+e.month+' · '+esc(HISTORICAL_DEBT_TYPES[e.type])+
+    plan.debt.map(e=>'<details class="card" data-allocation><summary>'+esc(e.unit.label)+' · '+archivePeriodLabel(e.startMonth,e.month)+' · '+esc(HISTORICAL_DEBT_TYPES[e.type])+
       ' · '+trMoney2(e.amount)+(e.needsCorrection?' · DÜZELTİLECEK ('+trMoney2(e.previousAmount)+' → '+trMoney2(e.amount)+')':e.existingAllocation?' · mevcut':' · yeni')+'</summary><div data-parts></div><button type="button" data-add>Pay ekle</button></details>').join('')+
     (plan.readings.length?'<details><summary>Sayaç endekslerini göster</summary><div class="tableWrap"><table><thead><tr><th>Daire</th><th>Dönem</th><th>Sayaç</th><th>Önceki</th><th>Yeni</th></tr></thead><tbody>'+
       plan.readings.map(e=>'<tr><td>'+esc(e.unit.label)+'</td><td>'+e.p.month+'</td><td>'+esc(FORM_METER_LABELS[e.type])+'</td><td>'+trNum(e.previous)+'</td><td>'+trNum(e.current)+'</td></tr>').join('')+'</tbody></table></div></details>':'')+
@@ -3958,16 +3974,16 @@ function renderArchiveBatchPlan(output,records){
       '<button type="button" class="primary" data-batch-commit '+(plan.corrected?'disabled':'')+'>'+ (CONFIG.mode==='supabase'?'Onayla ve sisteme aktar':'Onayla ve bu tarayıcıya kaydet')+'</button></div>':'');
   // Compact readable preview: one row per unit, detailed person splits remain editable on demand.
   const summaries=new Map();
-  const addSummary=(unitId,label,month,amount,kind)=>{
+  const addSummary=(unitId,label,month,amount,kind,startMonth='')=>{
     const key=month+'|'+unitId;
-    if(!summaries.has(key))summaries.set(key,{label,month,amount:0,debts:0,meters:0});
+    if(!summaries.has(key))summaries.set(key,{label,month,startMonth,amount:0,debts:0,meters:0});
     const row=summaries.get(key);if(kind==='debt'){row.debts++;row.amount+=debtCents(amount)}else row.meters++;
   };
-  plan.debt.forEach(e=>addSummary(e.unit.id,e.unit.label,e.month,e.amount,'debt'));
-  plan.readings.forEach(e=>addSummary(e.unit.id,e.unit.label,e.p.month,0,'meter'));
+  plan.debt.forEach(e=>addSummary(e.unit.id,e.unit.label,e.month,e.amount,'debt',e.startMonth));
+  plan.readings.forEach(e=>addSummary(e.unit.id,e.unit.label,e.p.month,0,'meter',e.p.startMonth));
   const compact=[...summaries.values()].sort((a,b)=>a.month.localeCompare(b.month)||a.label.localeCompare(b.label,'tr',{numeric:true}));
   const shortTable='<div class="tableWrap archiveSummaryTable"><table><thead><tr><th>Daire</th><th>Dönem</th><th>Toplam borç</th><th>Borç kalemi</th><th>Sayaç</th></tr></thead><tbody>'+
-    compact.map(x=>'<tr><td><b>'+esc(x.label)+'</b></td><td>'+esc(x.month)+'</td><td class="archiveSummaryMoney">'+(x.debts?trMoney2(x.amount/100):'—')+'</td><td>'+x.debts+'</td><td>'+x.meters+'</td></tr>').join('')+
+    compact.map(x=>'<tr><td><b>'+esc(x.label)+'</b></td><td>'+esc(archivePeriodLabel(x.startMonth,x.month))+'</td><td class="archiveSummaryMoney">'+(x.debts?trMoney2(x.amount/100):'—')+'</td><td>'+x.debts+'</td><td>'+x.meters+'</td></tr>').join('')+
     '</tbody><tfoot><tr><th colspan="2">TOPLAM</th><th class="archiveSummaryMoney">'+(plan.debt.length?trMoney2(compact.reduce((n,x)=>n+x.amount,0)/100):'—')+'</th><th>'+plan.debt.length+'</th><th>'+plan.readings.length+'</th></tr></tfoot></table></div>';
   output.querySelector('h3')?.insertAdjacentHTML('afterend',
     '<div class="notice ok" style="margin:10px 0"><b>'+compact.length+' dairelik özet.</b> Sistem PDF’deki toplam borçları ve sayaçları bu tabloda gösterir. Kişilere paylaştırma ayrıntıları gerektiğinde açılır.</div>'+shortTable);
