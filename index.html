@@ -2521,10 +2521,8 @@ function openPersonLedger(unitId,personId){
   const entries=personLedgerEntries(unitId,personId);
   const rels=ledgerResponsibilityBounds(unitId,personId);
   const dateInfo=rels.map(r=>(r.startDate||'Başlangıç belirlenmemiş')+' → '+(r.endDate||'Devam ediyor')).join(' | ');
-  const unresolved=state.charges.filter(c=>c.unitId===unitId&&!chargeAccountPersonId(c)).length;
   openModal('<h2>'+esc(p.name)+' · Kişisel Cari</h2><div class="small muted">'+esc(u.label)+' · '+esc(dateInfo)+'</div>'
     +'<div class="notice">Bu ekranda yalnızca kişiye bağlı ve sorumluluk tarihleri içindeki borçlar ile ödemeler yer alır. Önceki kişilerin işlemleri eklenmez. Dönem ortasındaki geçişler ayrıca kontrol edilir.</div>'
-    +(unresolved?'<div class="notice warn">'+unresolved+' borç kaleminin sorumlusu belirlenmemiş. Kişisel bakiyeye dahil edilmedi. Daire Merkezi üzerinden kontrol edilmelidir.</div>':'')
     +ledgerRowsHTML(unitId,entries.charges,entries.payments,personId)
     +'<div class="actions" style="margin-top:12px"><button onclick="closeModal();go(\'units\')">← Daire Listesi</button><button onclick="openPersonProfileEditor(\''+unitId+'\',\''+personId+'\')">Kişi Bilgileri</button>'+(session?.role==='manager'?'<button class="primary" onclick="openUnitHistoryCenter(\''+unitId+'\')">Dairenin Tüm Geçmişi</button>':'')+'</div>');
 }
