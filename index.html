@@ -3488,8 +3488,8 @@ function pdfArchiveMetadata(header,footer){
   const text=sheetKey(header).replace(/\s+/g,' ');
   const named=new RegExp('\\b('+months.join('|')+')\\s+(20\\d{2})\\b').exec(text);
   const numeric=/\b(20\d{2})\s+(0?[1-9]|1[0-2])\b/.exec(text);
-  const combined=new RegExp('\\b('+months.join('|')+')\\s*(?:-|/|VE|ILE)\\s*('+months.join('|')+')\\s+(20\\d{2})\\b').exec(text)
-    ||new RegExp('\\b(20\\d{2})\\s+('+months.join('|')+')\\s*(?:-|/|VE|ILE)\\s*('+months.join('|')+')\\b').exec(text);
+  const combined=new RegExp('\\b('+months.join('|')+')\\s+(?:(?:VE|ILE)\\s+)?('+months.join('|')+')\\s+(20\\d{2})\\b').exec(text)
+    ||new RegExp('\\b(20\\d{2})\\s+('+months.join('|')+')\\s+(?:(?:VE|ILE)\\s+)?('+months.join('|')+')\\b').exec(text);
   let rangeStart='',rangeEnd='';
   if(combined){
     const y=Number(combined[1].startsWith('20')?combined[1]:combined[3]);
@@ -3573,6 +3573,11 @@ function applyArchiveReadings(readings){
   for(const e of readings){
     let p=state.periods.find(p=>p.month===e.p.month);
     if(!p){p=e.p;state.periods.push(p);}
+    else if(e.p.startMonth){
+      const conflict=archiveExistingPeriodConflict(e.p.startMonth,e.p.month);
+      if(conflict)throw new Error(conflict);
+      p.startMonth=e.p.startMonth;
+    }
     upsertMeterReading(e.unit,p,e.type,e.previous,e.current,{source:'historical_import',sourceFile:e.filename,readAt:null});
   }
   return readings.length;
