@@ -364,6 +364,25 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 .archiveCorrectionCheck input{min-width:18px;min-height:18px;flex:none}
 @media(max-width:760px){.archiveCommitDock{flex-direction:column;align-items:stretch}.archiveCommitDock button{width:100%}}
 
+
+/* V1.53 full-width resident detail, 7-column ledger without horizontal scrollbar */
+@media screen and (min-width:761px){
+ .modalBack:has(.unitCenterHead){padding:8px!important;place-items:center!important}
+ .modalBack:has(.unitCenterHead)>.modal{width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important;margin:0!important;padding:12px!important;overflow-x:hidden!important}
+ .modal:has(.unitCenterHead) .residentLedgerTable{overflow-x:hidden!important;max-width:100%!important}
+ .modal:has(.unitCenterHead) .compactLedger{width:100%!important;min-width:0!important;table-layout:fixed!important;font-size:clamp(10px,.82vw,12px)!important}
+ .modal:has(.unitCenterHead) .compactLedger th,.modal:has(.unitCenterHead) .compactLedger td{min-width:0!important;white-space:normal!important;overflow-wrap:anywhere!important;padding:4px 5px!important}
+ .modal:has(.unitCenterHead) .compactLedger .ledgerAct{white-space:normal!important}
+ .modal:has(.unitCenterHead) .compactLedger td .small{font-size:10px!important}
+ .modal:has(.unitCenterHead) .compactLedger button{margin:2px!important;max-width:100%;white-space:normal}
+}
+.residentLedgerSwitch{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#eef6ff;border:1px solid #c4d9ef;border-radius:10px;padding:9px 12px;margin:9px 0}
+.residentLedgerSwitch .actions{flex:0 0 auto}
+.residentLedgerSwitch .actions>*{flex:initial;min-height:32px;padding:5px 10px;font-size:12px}
+.residentLedgerTable .compactLedger tbody tr:nth-child(even){background:#f3f7fb}
+.residentLedgerTable .compactLedger tbody tr:hover{background:#edf5ff}
+.residentLedgerTable .ledgerBankSub{max-width:100%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap!important}
+@media(max-width:760px){.residentLedgerTable{overflow-x:auto}.residentLedgerSwitch .actions{width:100%}.residentLedgerSwitch .actions>*{flex:1}}
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -415,7 +434,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.52';
+const APP_VERSION = 'V1.53';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2206,12 +2225,12 @@ function ledgerRowsHTML(unitId,charges,payments,personId=''){
   const incomes=[...payments].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(p=>{
     const d=bankPaymentDetails(p);
     const pick=bulk?'<input type="checkbox" class="ledgerPick" data-kind="payment" data-id="'+esc(p.id)+'" '+(p.chargeId?'disabled title="Borca bağlı ödeme"':'')+'> ':'';
-    const details='<div class="small muted" style="overflow-wrap:anywhere">Açıklama: '+esc(d.description)+'</div><div class="small muted">Hesap: '+esc(d.account)+' · Ref: '+esc(d.reference)+'</div>';
+    const details='<div class="small muted ledgerBankSub" title="'+esc(d.description)+'">'+esc(d.description.length>72?d.description.slice(0,72)+'…':d.description)+'</div>';
     return '<tr><td>'+pick+'Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(person(p.personId)?.name||'Atanmamış')+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td><b>'+esc(d.bank)+'</b>'+details+'</td><td class="ledgerAct"><button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Banka detayları</button>'+(bulk?'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>':'')+'</td></tr>';
   });
   const totalDebt=charges.reduce((n,c)=>n+Number(c.amount||0),0),totalPaid=payments.reduce((n,p)=>n+Number(p.amount||0),0);
   const actions=bulk?'<div class="actions" style="margin:8px 0"><button class="primary" onclick="openSelectedLedgerOwnerEditor(\''+unitId+'\')">Seçilen Borç + Ödemeleri Toplu Ata</button><button onclick="openBulkLedgerOwnerEditor(\''+unitId+'\')">Tüm Hareketlerden Seç</button></div>':'';
-  return actions+'<div class="tableWrap"><table class="compactLedger"><thead><tr><th>İşlem / Seç</th><th>Dönem / Tarih</th><th>Son Ödeme</th><th>Sorumlu Kişi</th><th>Tutar</th><th>Banka / Açıklama / Referans</th><th>Ayrıntı</th></tr></thead><tbody>'+([...debts,...incomes].join('')||'<tr><td colspan="7">Bu hesaba bağlı işlem bulunmuyor.</td></tr>')+'</tbody><tfoot><tr><th colspan="4">Toplam ödenen</th><th colspan="3">'+money(totalPaid)+'</th></tr><tr><th colspan="4">Toplam borç</th><th colspan="3">'+money(totalDebt)+'</th></tr><tr><th colspan="4">Denge (borç − ödeme)</th><th colspan="3">'+money(totalDebt-totalPaid)+'</th></tr></tfoot></table></div>';
+  return actions+'<div class="tableWrap residentLedgerTable"><table class="compactLedger"><colgroup><col style="width:18%"><col style="width:12%"><col style="width:11%"><col style="width:15%"><col style="width:11%"><col style="width:18%"><col style="width:15%"></colgroup><thead><tr><th>İşlem / Seç</th><th>Dönem / Tarih</th><th>Son Ödeme</th><th>Sorumlu Kişi</th><th>Tutar</th><th>Banka / Açıklama / Referans</th><th>Ayrıntı</th></tr></thead><tbody>'+([...debts,...incomes].join('')||'<tr><td colspan="7">Bu hesaba bağlı işlem bulunmuyor.</td></tr>')+'</tbody><tfoot><tr><th colspan="4">Toplam ödenen</th><th colspan="3">'+money(totalPaid)+'</th></tr><tr><th colspan="4">Toplam borç</th><th colspan="3">'+money(totalDebt)+'</th></tr><tr><th colspan="4">Denge (borç − ödeme)</th><th colspan="3">'+money(totalDebt-totalPaid)+'</th></tr></tfoot></table></div>';
 }
 function openSelectedLedgerOwnerEditor(unitId){
   const selected=[...document.querySelectorAll('.ledgerPick:checked')].map(el=>({kind:el.dataset.kind,id:el.dataset.id}));
@@ -2636,10 +2655,17 @@ async function saveUnitManagerExemption(unitId){
   }catch(e){notify('Yönetici muafiyeti kaydedilemedi: '+e.message)}
 }
 
-function openUnitCenter(unitId){
+function openUnitCenter(unitId,showHistory=false){
   syncLateFees(true);
   const u=unit(unitId),rels=unitRelationships(unitId),active=rels.filter(x=>x.r.active),f=unitFinancialSummary(unitId),p=period(),m=unitPeriodConsumption(unitId);
-  const charges=[...f.charges].sort((a,b)=>(b.dueDate||'').localeCompare(a.dueDate||''));const payments=[...f.payments].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // The unit's history remains immutable; the default screen belongs to the active resident.
+  const mainPerson=active.find(x=>x.r.primaryResponsible&&x.r.role==='tenant')?.p||
+    active.find(x=>x.r.role==='tenant')?.p||
+    active.find(x=>x.r.primaryResponsible)?.p||active[0]?.p||null;
+  const currentEntries=mainPerson?personLedgerEntries(unitId,mainPerson.id):{charges:[],payments:[]};
+  const visibleEntries=showHistory?{charges:f.charges,payments:f.payments}:currentEntries;
+  const shownDebt=visibleEntries.charges.reduce((n,c)=>n+Number(c.amount||0),0);
+  const shownPaid=visibleEntries.payments.reduce((n,x)=>n+Number(x.amount||0),0);
   const personRows=rels.map(x=>{const mails=personEmails(x.p);return `<div class="unitListRow"><div><b>${esc(x.p.name)}</b><div class="small muted">${relRoleLabel(x.r.role)} · ${x.r.active?'Aktif':'Eski / pasif'}${x.r.primaryResponsible?' · Birincil sorumlu':''}</div></div><div class="small">${mails.length?mails.map(esc).join('<br>'):'E-posta yok'}<br>${x.p.phone?esc(x.p.phone):'Telefon yok'}</div><div class="actions"><span class="pill ${x.r.active?'ok':''}">${x.r.loginEnabled?'Giriş açık':'Giriş kapalı'}</span><button onclick="openPersonLedger('${unitId}','${x.p.id}')">Kişi Carisi</button><button onclick="openPersonProfileEditor('${unitId}','${x.p.id}')">Düzenle</button></div></div>`}).join('');
   const unitMails=unitNotificationEmails(u);
   const histPeriods=[...state.periods].sort((a,b)=>String(b.month||'').localeCompare(String(a.month||''))).map(pr=>{
@@ -2654,23 +2680,25 @@ function openUnitCenter(unitId){
     return '<tr><td><button onclick="openPersonLedger(\''+unitId+'\',\''+pp.id+'\')">'+esc(pp.name)+'</button></td><td class="num">'+trMoney(debt)+'</td><td class="num">'+trMoney(paid)+'</td><td class="num"><b>'+trMoney(debt-paid)+'</b></td></tr>';
   }).join('');
   const personBalances='<details class="card" open style="margin-top:10px"><summary><b>Kişi Bazında Cari Bakiyeler</b> · Devredilen borç yeni sorumluda görünür</summary><div class="tableWrap"><table class="compactLedger"><thead><tr><th>Kişi</th><th>Borç</th><th>Ödeme</th><th>Bakiye</th></tr></thead><tbody>'+personBalanceRows+'</tbody></table></div><div class="small muted">Dairenin genel toplamı bütün kişileri ve atanmamış borçları içerir. Kişi carisi yalnızca o kişinin kayıtlarını gösterir.</div></details>';
-  const ledgerTable=ledgerRowsHTML(unitId,f.charges,f.payments);
+  const ledgerTable=ledgerRowsHTML(unitId,visibleEntries.charges,visibleEntries.payments,showHistory?'':mainPerson?.id||'');
+  const currentName=mainPerson?.name||'Aktif kişi bulunamadı';
+  const viewSwitch='<div class="residentLedgerSwitch"><div><strong>'+(showHistory?'Tüm daire geçmişi':esc(currentName)+' · Kişisel Cari')+'</strong><div class="small muted">'+(showHistory?'Eski ve yeni kiracıların kayıtları, tarihsel denetim içindir.':'Bu görünüm yalnızca aktif kişinin kendi hesabına atanmış borç ve ödemelerini içerir.')+'</div></div><div class="actions"><button type="button" class="'+(!showHistory?'primary':'')+'" onclick="openUnitCenter(\''+unitId+'\',false)">Aktif Kişi</button><button type="button" class="'+(showHistory?'primary':'')+'" onclick="openUnitCenter(\''+unitId+'\',true)">Tüm Daire Geçmişi</button></div></div>';
   const unresolved=f.charges.filter(c=>!chargeAccountPersonId(c)).length;
   openModal(`<div class="unitCenterHead"><button onclick="closeModal();go('units')">← Dairelere Dön</button><div><h2>${u.label} · Daire Merkezi</h2><div class="small muted">${u.type==='apartment'?u.sqm+' m²':'Aidat katsayısı '+u.duesMultiplier} · tüm bilgiler tek ekranda</div></div><span class="badge">${APP_VERSION}</span></div>
-  <div class="unitCenterCards" style="margin-top:10px"><div class="card kpi"><div class="klabel">Toplam Tahakkuk</div><div class="kval">${trMoney(f.total)}</div></div><div class="card kpi"><div class="klabel">Toplam Ödeme</div><div class="kval">${trMoney(f.paid)}</div></div><div class="card kpi"><div class="klabel">Bakiye</div><div class="kval ${f.balance>0?'danger':f.balance<0?'ok':''}">${trMoney(f.balance)}</div></div><div class="card kpi"><div class="klabel">Gecikme Faizi</div><div class="kval">${trMoney(f.late)}</div></div></div>
+  <div class="residentLedgerSwitch">${viewSwitch}</div><div class="unitCenterCards" style="margin-top:10px"><div class="card kpi"><div class="klabel">${showHistory?'Tüm daire tahakkuku':'Kişinin Tahakkuku'}</div><div class="kval">${trMoney(shownDebt)}</div></div><div class="card kpi"><div class="klabel">${showHistory?'Tüm daire ödemesi':'Kişinin Ödemesi'}</div><div class="kval">${trMoney(shownPaid)}</div></div><div class="card kpi"><div class="klabel">${showHistory?'Dairenin Bakiye':'Kişinin Bakiyesi'}</div><div class="kval ${shownDebt-shownPaid>0?'danger':shownDebt-shownPaid<0?'ok':''}">${trMoney(shownDebt-shownPaid)}</div></div><div class="card kpi"><div class="klabel">Dairenin Gecikme Faizi</div><div class="kval">${trMoney(f.late)}</div></div></div>
   <details class="card personFold" style="margin-top:12px"><summary><b>Kişiler / Hane (${rels.length})</b> <span class="small muted">Aç / kapat</span></summary><div style="margin-top:10px">${personRows||'<div class="muted small">Kayıt yok.</div>'}</div></details>
   <div class="actions" style="margin-top:10px"><button class="primary" onclick="openBulkLedgerOwnerEditor('${unitId}')">Borç + Ödeme Toplu Sorumlu Ata</button><button onclick="openChargeOwnerEditor('${unitId}')">Yalnız Borçları Düzenle</button></div>
-  <div class="card" style="margin-top:12px"><div class="sectionHead"><h3>Gelir – Gider / Borç Tahakkuk Hareketleri</h3><button onclick="openUnitLedger('${unitId}')">Detaylı Cari</button></div>
-    <div class="small muted">Gelir: ödeme tarihi ve banka. Gider: borç dönemi, son ödeme tarihi ve toplam. Ayrıntı için Kalemler'i aç.</div>
-    ${unresolved?'<div class="notice warn">Sorumlusu henüz belirlenmemiş '+unresolved+' borç kalemi var. <button onclick="openUnassignedLedger(\''+unitId+'\')">Atanmamış Borçları İncele</button></div>':''}
-    ${personBalances}${ledgerTable}</div>
+  <div class="card" style="margin-top:12px"><div class="sectionHead"><h3>${showHistory?'Dairenin Tüm Borç ve Ödeme Geçmişi':esc(currentName)+' · Borç ve Ödemeler'}</h3><button onclick="openUnitLedger('${unitId}')">Detaylı Cari</button></div>
+    <div class="small muted">Borç dönemi, son ödeme, sorumlu kişi ve banka adı kısa satırlarda gösterilir. Bankanın tam açıklaması “Banka detayları” düğmesindedir.</div>
+    ${showHistory?(unresolved?'<div class="notice warn">Sorumlusu henüz belirlenmemiş '+unresolved+' borç kalemi var. <button onclick="openUnassignedLedger(\''+unitId+'\')">Atanmamış Borçları İncele</button></div>':'')+personBalances:''}
+    ${ledgerTable}</div>
   <div class="unitLateFeeBox"><div><b>Gecikme faizi yönetimi</b><div class="small muted">Bu daire için biriken faizi sıfırla veya seçili dönemi faizden muaf tut.</div></div><div class="actions"><button class="dangerBtn" onclick="openUnitLateFeeControl('${unitId}')">Faizi Yönet</button></div></div>
   <div class="actions" style="margin-top:10px"><button class="primary" onclick="closeModal();openPaymentForUnit('${unitId}')">+ Manuel Ödeme</button><button onclick="openLegacyDebtEntry('${unitId}')">+ Geçmiş Borç</button><button onclick="openHouseholdPersonForm('${unitId}')">+ Kişi Ekle</button><button class="primary" onclick="openDebtSplit('${unitId}')">Aylık Borcu İki Kişiye Böl</button><button onclick="openUnitNotificationEmails('${unitId}')">Daire E-postaları</button><button onclick="closeModal();openUnitLedger('${unitId}')">Detaylı Cari</button></div>
   ${u.type==='apartment'?'<details class="card" style="margin-top:8px"><summary><b>Daire Ayarları · Yönetici Aidatı</b></summary><div style="margin-top:8px"><label class="switch"><input id="unitManagerExempt" type="checkbox" '+(state.settings.defaultManagerDuesExemptUnitId===unitId?'checked':'')+'> Bu daire apartman yöneticisine ait; gelecek aylarda normal aidat alma</label><p class="small muted">Su, gaz ve elektrik muaf değildir. Geçmişte kapanmış veya hesaplanmış dönemler otomatik değişmez.</p><button class="primary" onclick="saveUnitManagerExemption(\'${unitId}\')">Aidat Muafiyetini Kaydet</button></div></details>':''}
   <div class="notice" style="margin-top:10px"><b>Daire bildirim e-postaları:</b> ${unitMails.length?unitMails.map(esc).join(', '):'Henüz tanımlı değil'} · Kişilerin kendi e-postaları ayrıca kullanılır.</div>
   <div class="unitPanel"><h3>${isoMonthLabel(p.month)} Tüketimleri</h3><div class="grid3"><div class="card"><div class="small muted">Soğuk Su</div><b>${m.cold==null?'—':trNum(m.cold,3)+' m³'}</b></div><div class="card"><div class="small muted">Sıcak Su</div><b>${m.hot==null?'—':trNum(m.hot,3)+' m³'}</b></div><div class="card"><div class="small muted">Gaz</div><b>${p.boilerActive?(m.gas==null?'—':trNum(m.gas,3)+' m³'):'Kombi kapalı'}</b></div></div><div class="actions" style="margin-top:8px"><button onclick="openUnitHistory('${unitId}')">Tüm Tüketim Geçmişi</button><button onclick="closeModal();go('monthly')">Aylık Tablo</button></div></div>
   
-  <div class="unitPanel"><h3>Dönem Geçmişi</h3>${histPeriods||'<div class="muted small">Geçmiş dönem yok.</div>'}</div>
+  <div class="unitPanel"><h3>${showHistory?'Daire Dönem Geçmişi':'Kişinin Dönem Geçmişi'}</h3>${showHistory?histPeriods||'<div class="muted small">Geçmiş dönem yok.</div>':(state.periods.filter(pr=>visibleEntries.charges.some(c=>c.periodId===pr.id)||visibleEntries.payments.some(p=>p.periodId===pr.id)).sort((a,b)=>String(b.month).localeCompare(String(a.month))).map(pr=>{const debt=visibleEntries.charges.filter(c=>c.periodId===pr.id).reduce((n,c)=>n+Number(c.amount||0),0);const paid=visibleEntries.payments.filter(p=>p.periodId===pr.id).reduce((n,p)=>n+Number(p.amount||0),0);return '<div class="row"><span>'+esc(periodListLabel(pr.month))+'</span><span>Borç '+trMoney(debt)+' · Ödeme '+trMoney(paid)+'</span><b>'+trMoney(debt-paid)+'</b></div>'}).join('')||'<div class="muted small">Bu kişiye ait dönem kaydı bulunmuyor.</div>')}</div>
   <div class="lateRule"><b>Faiz başlangıcı:</b> ilgili borcun son ödeme tarihinden sonraki ilk gün.</div>`);
 }
 
