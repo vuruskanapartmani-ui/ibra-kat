@@ -1943,7 +1943,7 @@ function setPeriodListFilter(kind,value){
 function managerPeriods(){
   const periods=filteredPeriodsDescending();
   const rows=periods.map(p=>{const ex=managerDuesExemptionText(p);return `<div class="listitem"><div class="sectionHead"><div><b>${periodDisplayName(p)}</b><div class="small muted">Son ödeme: ${p.dueDate||'—'} · Aidat ${trMoney(p.dues)} · ${p.boilerActive?'Kombi aktif':'Kombi kapalı'}</div><div class="small ${p.managerDuesExemptUnitId?'ok':'muted'}">${ex}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kesinleşti':'Taslak'}</span></div><div style="margin-top:9px">${p.status!=='locked'?dueDateEditor(p,true):''}</div><div class="actions" style="margin-top:9px"><button onclick="activePeriodId='${p.id}';go('periodDetail')">Aç</button>${p.status!=='locked'?`<button class="primary" onclick="activePeriodId='${p.id}';lockPeriod()">Kesinleştir</button>`:''}</div></div>`}).join('');
-  const c=`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Yeni dönemi yönetici açar.</div></div><div class="actions"><button onclick="openTwoMonthCalculation()">İki Ayı Birlikte Hesapla</button><button class="primary" onclick="openNewPeriod()">+ Yeni Dönem</button></div></div>${periodListFilterBar()}<div class="muted small" style="margin-top:10px">${periods.length} dönem listeleniyor · En yeni dönem üstte</div><div class="list" style="margin-top:10px">${rows||'<div class="notice">Seçilen filtrelere uygun dönem bulunamadı.</div>'}</div>`;
+  const c=`<div class="sectionHead"><div><h2>Dönemler</h2><div class="muted small">Yeni dönemi yönetici açar.</div></div><div class="actions"><button onclick="openTwoMonthCalculation()">İki Ayrı Ayı Hesapla</button><button onclick="openNewPeriod();document.querySelector('#npPeriodMode').value='combined';toggleNewPeriodSecondMonth()">+ Ortak Dönem</button><button class="primary" onclick="openNewPeriod()">+ Yeni Dönem</button></div></div>${periodListFilterBar()}<div class="muted small" style="margin-top:10px">${periods.length} dönem listeleniyor · En yeni dönem üstte</div><div class="list" style="margin-top:10px">${rows||'<div class="notice">Seçilen filtrelere uygun dönem bulunamadı.</div>'}</div>`;
   return shell(c,[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'units',ico:'🏠',label:'Bölümler'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}]);
 }
 
@@ -3666,19 +3666,44 @@ async function readArchivePdfs(files,progress){
   return entries;
 }
 function renderArchivePdfImport(output,entries,scope,edit){
-  // No silent one-click commit: review source values, calculated totals and affected records first.
   const visible=entries.map((e,i)=>({...e,i})).filter(e=>!scope||e.doc?.mode===scope||e.record?.context?.mode===scope);
-  output.innerHTML='<div class="notice" style="margin:10px 0"><b>PDF okuma tamamlandı.</b> Aşağıda her dosyayı <b>Kontrol et ve önizle</b> ile aç. Yanlış rakamları düzeltebilir, yeşil işaretli değişiklikleri görebilirsin. Son onay olmadan hiçbir kayıt aktarılmaz.</div>'+
+  output.innerHTML='<div class="notice" style="margin:10px 0"><b>PDF okuma tamamlandı.</b> Dönemi aşağıdan seçin. Eylül–Ekim gibi ortak hesaplanan PDF için <b>İki ay, tek tahakkuk</b> seçin. Önizleme ve onay olmadan kayıt yapılmaz.</div>'+
     '<div class="list">'+visible.map(({file,doc,record,error,i})=>{
-      const p=record?.context||doc;const mode=p?.mode==='meter'?'Tüketim':'Borç';
-      const note=error?'<div class="small danger">'+esc(error)+'</div>':
-        '<div class="small ok">PDF okundu. Sayıları ve daireleri kontrol edin.</div>';
-      return '<div class="listitem archiveImportItem"><div><b>'+esc(file.name)+'</b><div class="small muted">'+esc(mode)+' · PDF içindeki dönem: '+esc(p?.month?archivePeriodLabel(p.startMonth,p.month):'Okunamadı')+
-        ' · Son ödeme: '+esc(p?.due||'—')+'</div>'+note+'</div>'+
-        (doc?'<button type="button" class="primary" data-pdf-edit="'+i+'">Kontrol et ve önizle</button>':
-          '<span class="small danger">Belge okunamadı; dosyayı yeniden yükleyin.</span>')+'</div>';
+      const p=record?.context||doc,kind=p?.mode==='meter'?'Tüketim':'Borç';
+      const last=p?.month||'',joint=!!(p?.startMonth&&p.startMonth!==last);
+      const first=joint?p.startMonth:archivePreviousMonth(last);
+      const note=error?'<div class="small danger">'+esc(error)+'</div>':'<div class="small ok">PDF okundu. Dönemi ve rakamları kontrol edin.</div>';
+      return '<div class="listitem archiveImportItem" data-pdf-entry="'+i+'"><div><b>'+esc(file.name)+'</b><div class="small muted">'+esc(kind)+' · Algılanan dönem: '+esc(last?archivePeriodLabel(p.startMonth,last):'Okunamadı')+' · Son ödeme: '+esc(p?.due||'—')+'</div>'+note+'</div>'+
+        (doc?'<div class="grid2"><label>Dönem türü<select data-archive-mode><option value="single"'+(!joint?' selected':'')+'>Tek ay</option><option value="combined"'+(joint?' selected':'')+'>İki ay, tek tahakkuk</option></select></label>'+
+        '<label>Son ay<input type="month" data-archive-last value="'+esc(last)+'"></label>'+
+        '<label data-archive-first-wrap style="'+(!joint?'display:none':'')+'">İlk ay<input type="month" data-archive-first value="'+esc(first)+'"></label></div>'+
+        '<button type="button" class="primary" data-pdf-edit="'+i+'">Seçilen dönemle kontrol et ve önizle</button>':
+        '<span class="small danger">Belge okunamadı; yeniden yükleyin.</span>')+'</div>';
     }).join('')+'</div>';
-  $$('[data-pdf-edit]',output).forEach(button=>button.addEventListener('click',()=>edit(entries[Number(button.dataset.pdfEdit)])));
+  $$('[data-pdf-entry]',output).forEach(panel=>{
+    const mode=panel.querySelector('[data-archive-mode]'),first=panel.querySelector('[data-archive-first]'),last=panel.querySelector('[data-archive-last]');
+    if(!mode)return;
+    const update=()=>{const joint=mode.value==='combined';first.closest('label').style.display=joint?'':'none';first.required=joint;if(joint&&!first.value)first.value=archivePreviousMonth(last.value);};
+    mode.addEventListener('change',update);
+    last.addEventListener('change',()=>{if(mode.value==='combined')first.value=archivePreviousMonth(last.value);});
+    update();
+    panel.querySelector('[data-pdf-edit]').addEventListener('click',()=>{
+      const entry=entries[Number(panel.dataset.pdfEntry)];
+      try{
+        const lastMonth=last.value,firstMonth=mode.value==='combined'?archiveRangeStart(first.value,lastMonth):archiveRangeStart(lastMonth,lastMonth);
+        if(mode.value==='combined'&&firstMonth===lastMonth)throw Error('İki farklı ay seçilmelidir.');
+        const conflict=archiveExistingPeriodConflict(firstMonth,lastMonth);
+        if(conflict)throw Error(conflict);
+        entry.doc={...entry.doc,month:lastMonth,startMonth:firstMonth};
+        edit(entry);
+      }catch(error){notify('Dönem seçimi: '+error.message);}
+    });
+  });
+}
+function archivePreviousMonth(month){
+  if(!validArchiveMonth(month))return '';
+  const [y,m]=month.split('-').map(Number);
+  return (m===1?y-1:y)+'-'+String(m===1?12:m-1).padStart(2,'0');
 }
 function debtResponsibilityOptions(unitId,month){
   const start=month+'-01', end=monthEnd(month);
