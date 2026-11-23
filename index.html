@@ -408,6 +408,11 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 /* V1.54 list entry points */
 .unitListActions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
 .unitListActions button{min-height:30px!important;padding:4px 8px!important;font-size:11px!important;border-radius:6px!important}
+
+/* V1.55 sortable compact ledger headers */
+.ledgerSortButton{display:inline-flex;gap:3px;align-items:center;justify-content:flex-start;min-height:24px!important;width:100%;max-width:100%;padding:2px 4px!important;border:0!important;box-shadow:none!important;background:transparent!important;text-align:left;font-size:inherit!important;font-weight:800!important;white-space:normal;line-height:1.2;color:inherit!important}
+.ledgerSortButton:hover{color:#0f6fc6!important;text-decoration:underline}
+.ledgerSortIndicator{color:#517ca7;font-size:11px;font-weight:700;white-space:nowrap}
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -459,7 +464,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.54';
+const APP_VERSION = 'V1.55';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2236,6 +2241,40 @@ function ledgerDebtGroups(charges){
   });
   return [...map.values()].sort((a,b)=>b.sort.localeCompare(a.sort));
 }
+/* Click-to-sort for seven-column personal and apartment ledgers, without touching financial data. */
+function ledgerSortValue(row,index){
+  const raw=row.cells[index]?.innerText.trim()||'';
+  if(index===0)return row.dataset.ledgerType||raw;
+  if(index===1)return row.dataset.ledgerDate||raw;
+  if(index===2)return row.dataset.ledgerDue||raw;
+  if(index===3)return row.dataset.ledgerOwner||raw;
+  if(index===4)return Number(row.dataset.ledgerAmount||0);
+  if(index===5)return row.dataset.ledgerBank||raw;
+  return raw;
+}
+function sortLedgerColumn(btn,col){
+  const table=btn.closest('table'),body=table?.tBodies[0];
+  if(!body)return;
+  const previous=Number(table.dataset.sortColumn);
+  const ascending=String(table.dataset.sortColumn)===String(col)?table.dataset.sortDirection!=='asc':(col!==1&&col!==2&&col!==4);
+  table.dataset.sortColumn=String(col);
+  table.dataset.sortDirection=ascending?'asc':'desc';
+  const collator=new Intl.Collator('tr',{numeric:true,sensitivity:'base'});
+  const rows=Array.from(body.rows).filter(row=>row.cells.length===7);
+  rows.sort((a,b)=>{
+    const aa=ledgerSortValue(a,col),bb=ledgerSortValue(b,col);
+    const compare=col===4?Number(aa)-Number(bb):collator.compare(String(aa),String(bb));
+    return (ascending?1:-1)*compare;
+  });
+  rows.forEach(row=>body.appendChild(row));
+  table.querySelectorAll('thead th').forEach((th,i)=>{
+    const sorted=i===col;
+    th.setAttribute('aria-sort',!sorted?'none':ascending?'ascending':'descending');
+    const indicator=th.querySelector('.ledgerSortIndicator');
+    if(indicator)indicator.textContent=sorted?(ascending?' ▲':' ▼'):' ↕';
+  });
+}
+
 function ledgerRowsHTML(unitId,charges,payments,personId=''){
   const money=n=>trMoney(n),bulk=!personId;
   const debts=ledgerDebtGroups(charges).map(g=>{
@@ -2245,17 +2284,17 @@ function ledgerRowsHTML(unitId,charges,payments,personId=''){
       const linked=state.payments.some(p=>p.chargeId===c.id||p.chargeId==='late_'+c.id);
       return '<label style="display:inline-flex;gap:4px;align-items:center;margin-right:7px"><input type="checkbox" class="ledgerPick" data-kind="charge" data-id="'+esc(c.id)+'" '+(linked?'disabled title="Ödemeye bağlı"':'')+'><span class="small">'+esc(c.label||c.type||'Borç')+'</span></label>';
     }).join(''):'';
-    return '<tr><td>'+(bulk?'<div>'+checkboxes+'</div>':'')+'Borç</td><td>'+esc(g.periodName)+'</td><td>'+esc(g.due)+'</td><td>'+esc(names.join(', '))+'</td><td class="num"><b>'+money(g.amount)+'</b></td><td>—</td><td class="ledgerAct"><button onclick="showDebtComponents(\''+unitId+'\',\''+id+'\',\''+due+'\',\''+personId+'\')">Kalemler</button>'+(bulk?'<button onclick="openChargeOwnerEditor(\''+unitId+'\',\''+id+'\',\''+due+'\')">Sorumlu değiştir</button>':'')+'</td></tr>';
+    return '<tr data-ledger-type="Borç" data-ledger-date="'+esc(state.periods.find(p=>p.id===g.periodId)?.month||g.sort||'')+'" data-ledger-due="'+esc(g.due==='—'?'':g.due)+'" data-ledger-owner="'+esc(names.join(', '))+'" data-ledger-amount="'+g.amount+'" data-ledger-bank=""><td>'+(bulk?'<div>'+checkboxes+'</div>':'')+'Borç</td><td>'+esc(g.periodName)+'</td><td>'+esc(g.due)+'</td><td>'+esc(names.join(', '))+'</td><td class="num"><b>'+money(g.amount)+'</b></td><td>—</td><td class="ledgerAct"><button onclick="showDebtComponents(\''+unitId+'\',\''+id+'\',\''+due+'\',\''+personId+'\')">Kalemler</button>'+(bulk?'<button onclick="openChargeOwnerEditor(\''+unitId+'\',\''+id+'\',\''+due+'\')">Sorumlu değiştir</button>':'')+'</td></tr>';
   });
   const incomes=[...payments].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(p=>{
     const d=bankPaymentDetails(p);
     const pick=bulk?'<input type="checkbox" class="ledgerPick" data-kind="payment" data-id="'+esc(p.id)+'" '+(p.chargeId?'disabled title="Borca bağlı ödeme"':'')+'> ':'';
     const details='<div class="small muted ledgerBankSub" title="'+esc(d.description)+'">'+esc(d.description.length>72?d.description.slice(0,72)+'…':d.description)+'</div>';
-    return '<tr><td>'+pick+'Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(person(p.personId)?.name||'Atanmamış')+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td><b>'+esc(d.bank)+'</b>'+details+'</td><td class="ledgerAct"><button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Banka detayları</button>'+(bulk?'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>':'')+'</td></tr>';
+    return '<tr data-ledger-type="Ödeme" data-ledger-date="'+esc(p.date||'')+'" data-ledger-due="" data-ledger-owner="'+esc(person(p.personId)?.name||'Atanmamış')+'" data-ledger-amount="'+Number(p.amount||0)+'" data-ledger-bank="'+esc(d.bank)+'"><td>'+pick+'Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(person(p.personId)?.name||'Atanmamış')+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td><b>'+esc(d.bank)+'</b>'+details+'</td><td class="ledgerAct"><button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Banka detayları</button>'+(bulk?'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>':'')+'</td></tr>';
   });
   const totalDebt=charges.reduce((n,c)=>n+Number(c.amount||0),0),totalPaid=payments.reduce((n,p)=>n+Number(p.amount||0),0);
   const actions=bulk?'<div class="actions" style="margin:8px 0"><button class="primary" onclick="openSelectedLedgerOwnerEditor(\''+unitId+'\')">Seçilen Borç + Ödemeleri Toplu Ata</button><button onclick="openBulkLedgerOwnerEditor(\''+unitId+'\')">Tüm Hareketlerden Seç</button></div>':'';
-  return actions+'<div class="tableWrap residentLedgerTable"><table class="compactLedger"><colgroup><col style="width:18%"><col style="width:12%"><col style="width:11%"><col style="width:15%"><col style="width:11%"><col style="width:18%"><col style="width:15%"></colgroup><thead><tr><th>İşlem / Seç</th><th>Dönem / Tarih</th><th>Son Ödeme</th><th>Sorumlu Kişi</th><th>Tutar</th><th>Banka / Açıklama / Referans</th><th>Ayrıntı</th></tr></thead><tbody>'+([...debts,...incomes].join('')||'<tr><td colspan="7">Bu hesaba bağlı işlem bulunmuyor.</td></tr>')+'</tbody><tfoot><tr><th colspan="4">Toplam ödenen</th><th colspan="3">'+money(totalPaid)+'</th></tr><tr><th colspan="4">Toplam borç</th><th colspan="3">'+money(totalDebt)+'</th></tr><tr><th colspan="4">Denge (borç − ödeme)</th><th colspan="3">'+money(totalDebt-totalPaid)+'</th></tr></tfoot></table></div>';
+  return actions+'<div class="tableWrap residentLedgerTable"><table class="compactLedger"><colgroup><col style="width:18%"><col style="width:12%"><col style="width:11%"><col style="width:15%"><col style="width:11%"><col style="width:18%"><col style="width:15%"></colgroup><thead><tr><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,0)" title="İşlem / Seç sütununu sırala">İşlem / Seç<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,1)" title="Dönem / Tarih sütununu sırala">Dönem / Tarih<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,2)" title="Son Ödeme sütununu sırala">Son Ödeme<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,3)" title="Sorumlu Kişi sütununu sırala">Sorumlu Kişi<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,4)" title="Tutar sütununu sırala">Tutar<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,5)" title="Banka / Açıklama / Referans sütununu sırala">Banka / Açıklama / Referans<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th><th aria-sort="none"><button type="button" class="ledgerSortButton" onclick="sortLedgerColumn(this,6)" title="Ayrıntı sütununu sırala">Ayrıntı<span class="ledgerSortIndicator" aria-hidden="true"> ↕</span></button></th></tr></thead><tbody>'+([...debts,...incomes].join('')||'<tr><td colspan="7">Bu hesaba bağlı işlem bulunmuyor.</td></tr>')+'</tbody><tfoot><tr><th colspan="4">Toplam ödenen</th><th colspan="3">'+money(totalPaid)+'</th></tr><tr><th colspan="4">Toplam borç</th><th colspan="3">'+money(totalDebt)+'</th></tr><tr><th colspan="4">Denge (borç − ödeme)</th><th colspan="3">'+money(totalDebt-totalPaid)+'</th></tr></tfoot></table></div>';
 }
 function openSelectedLedgerOwnerEditor(unitId){
   const selected=[...document.querySelectorAll('.ledgerPick:checked')].map(el=>({kind:el.dataset.kind,id:el.dataset.id}));
@@ -2810,7 +2849,7 @@ function openPersonProfileEditor(unitId,personId){
     +'<label class="switch"><input id="pePrimary" type="checkbox" '+(rel.primaryResponsible?'checked':'')+'> Bu rol için birincil finansal sorumlu</label>'
     +'<label class="switch"><input id="peLogin" type="checkbox" '+(rel.loginEnabled?'checked':'')+' '+(!rel.active?'disabled':'')+'> Sisteme giriş yetkisi açık</label>'
     +'<div class="notice warn">Pasife almak geçmiş borç ve ödeme kayıtlarını silmez. Yeni dönemlerde sorumluluğun kime geçeceğini ayrıca kontrol edin.</div>'
-    +'<div class="actions"><button type="button" onclick="openUnitCenter(\''+unitId+'\')">Geri</button><button id="personSaveBtn" class="primary" type="submit">Değişiklikleri Kaydet</button></div></form><p id="personSaveMsg" class="small danger"></p>'
+    +'<div class="actions"><button type="button" onclick="openPersonLedger(\''+unitId+'\',\''+personId+'\')">Geri</button><button id="personSaveBtn" class="primary" type="submit">Değişiklikleri Kaydet</button></div></form><p id="personSaveMsg" class="small danger"></p>'
     +'<div class="actions" style="margin-top:12px"><button class="dangerBtn" type="button" onclick="removePersonFromUnit(\''+unitId+'\',\''+personId+'\')">Hatalı Kişi Kaydını Sil</button></div>');
 }
 function personStatusFieldChanged(){
@@ -2972,7 +3011,7 @@ async function rejectResidentApplication(id){
 function managerResidents(){
   const all=state.responsibilities.map(r=>({r,p:person(r.personId),u:unit(r.unitId)})).filter(x=>x.p&&x.u);
   const active=all.filter(x=>x.r.active).length,old=all.length-active,owners=all.filter(x=>x.r.role==='owner').length,tenants=all.filter(x=>x.r.role==='tenant').length;
-  const rows=all.sort((a,b)=>state.units.indexOf(a.u)-state.units.indexOf(b.u)||(b.r.active-a.r.active)||a.p.name.localeCompare(b.p.name,'tr')).map((x,i)=>`<tr data-res-row data-active="${x.r.active?'1':'0'}" data-role="${x.r.role}" data-search="${esc(normTR(x.u.label+' '+x.p.name+' '+relRoleLabel(x.r.role)))}"><td><b>${x.u.label}</b></td><td>${esc(x.p.name)}</td><td>${relRoleLabel(x.r.role)}</td><td><span class="pill ${x.r.active?'ok':''}">${x.r.active?'AKTİF':'ESKİ / PASİF'}</span></td><td>${x.r.loginEnabled?'Açık':'Kapalı'}</td><td><button onclick="openPersonProfileEditor('${x.u.id}','${x.p.id}')">Kişiyi Düzenle</button> <button onclick="openUnit('${x.u.id}')">Daireyi Aç</button></td></tr>`).join('');
+  const rows=all.sort((a,b)=>state.units.indexOf(a.u)-state.units.indexOf(b.u)||(b.r.active-a.r.active)||a.p.name.localeCompare(b.p.name,'tr')).map((x,i)=>`<tr data-res-row data-active="${x.r.active?'1':'0'}" data-role="${x.r.role}" data-search="${esc(normTR(x.u.label+' '+x.p.name+' '+relRoleLabel(x.r.role)))}"><td><b>${x.u.label}</b></td><td>${esc(x.p.name)}</td><td>${relRoleLabel(x.r.role)}</td><td><span class="pill ${x.r.active?'ok':''}">${x.r.active?'AKTİF':'ESKİ / PASİF'}</span></td><td>${x.r.loginEnabled?'Açık':'Kapalı'}</td><td><button onclick="openPersonProfileEditor('${x.u.id}','${x.p.id}')">Kişiyi Düzenle</button> <button onclick="openPersonLedger('${x.u.id}','${x.p.id}')">Kişi Kartı</button> <button onclick="openUnitHistoryCenter('${x.u.id}')">Daire Geçmişi</button></td></tr>`).join('');
   const c=`<div class="sectionHead"><div><h2>Sakinler / Geçmiş Kişiler</h2><div class="muted small">Aktif olmayan eski kiracılar ve eski malik kayıtları silinmez; geçmişte görünmeye devam eder.</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="grid4" style="margin-top:10px"><div class="card kpi"><div class="klabel">Aktif ilişki</div><div class="kval">${active}</div></div><div class="card kpi"><div class="klabel">Eski / pasif</div><div class="kval">${old}</div></div><div class="card kpi"><div class="klabel">Malik kayıtları</div><div class="kval">${owners}</div></div><div class="card kpi"><div class="klabel">Kiracı kayıtları</div><div class="kval">${tenants}</div></div></div>
   <div class="card" style="margin-top:10px"><div class="grid3"><label>Ara<input id="residentSearch" placeholder="Ad, daire, rol" oninput="filterResidents()"></label><label>Durum<select id="residentStatus" onchange="filterResidents()"><option value="all">Tümü</option><option value="active">Sadece aktif</option><option value="old">Sadece eski/pasif</option></select></label><label>Rol<select id="residentRole" onchange="filterResidents()"><option value="all">Tümü</option><option value="owner">Ev Sahibi</option><option value="tenant">Kiracı</option><option value="business">İşyeri</option></select></label></div></div>
