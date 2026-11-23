@@ -474,6 +474,12 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 @media(max-width:650px){.monthlyUnitFilterGrid{grid-template-columns:1fr 1fr}.monthlyUnitFilterGrid button{grid-column:1/-1}}
 @media print{.monthlyUnitFiltered .unitMonthlyReport{border:0;box-shadow:none;break-before:page;page-break-before:always}.monthlyUnitFiltered .unitMonthlyReport:first-of-type{break-before:auto;page-break-before:auto}.monthlyUnitFiltered .unitMonthlyReport h3{font-size:12pt}.monthlyUnitFiltered .unitMonthlyReport .tableWrap{overflow:visible}}
 
+
+/* V1.58: clearly expose missing monthly imports */
+.monthlyMissingBanner{margin:10px 0!important;background:#fff0ee!important;border:2px solid #c43c34!important;color:#a52b25!important}
+.monthlyMissingBanner.notice.ok{background:#eef8f3!important;border-color:#75b39a!important;color:#155b43!important}
+.monthlyMissingTags{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0}
+.monthlyMissingTags span{display:inline-block;background:#fff;border:1px solid #d99a96;border-radius:5px;padding:5px 9px;font-size:12px;font-weight:750;color:#922b22}
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -526,7 +532,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.57';
+const APP_VERSION = 'V1.58';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -1658,6 +1664,45 @@ function unitMonthlyReport(){
       return '<option value="'+val+'" '+(monthlyUnitMonth===val?'selected':'')+'>'+label+'</option>';
     })].join('');
   const debtMode=monthlyUnitReportMode==='debt';
+  // Flag every past month for which the selected report has NO actual data.
+  // The period's existence alone does not mean its debts or meters were imported.
+  const reportingMonths=new Map();
+  for(const p of periods){
+    let m=p.startMonth||p.month;
+    for(let i=0;i<12&&m<=p.month;i++){
+      if((monthlyUnitYear==='all'||m.slice(0,4)===monthlyUnitYear)
+        &&(monthlyUnitMonth==='all'||m.slice(5,7)===monthlyUnitMonth)){
+        if(!reportingMonths.has(m))reportingMonths.set(m,[]);
+        reportingMonths.get(m).push(p);
+      }
+      const [y,mm]=m.split('-').map(Number);
+      m=(mm===12?y+1:y)+'-'+String(mm===12?1:mm+1).padStart(2,'0');
+    }
+  }
+  const todayMonth=new Date().toISOString().slice(0,7);
+  const filterYears=monthlyUnitYear==='all'?years:[monthlyUnitYear];
+  const monthNums=monthlyUnitMonth==='all'?Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0')):[monthlyUnitMonth];
+  const missingMonths=[];
+  for(const yr of filterYears)for(const mm of monthNums){
+    const month=yr+'-'+mm;
+    if(month>todayMonth)continue;
+    // Include months since the beginning of the earliest recorded period, not prior years.
+    const earliest=periods.map(p=>p.startMonth||p.month).sort()[0];
+    if(month<earliest)continue;
+    const relevant=reportingMonths.get(month)||[];
+    const ids=new Set(relevant.map(p=>p.id));
+    const present=debtMode?state.charges.some(c=>ids.has(c.periodId)):
+      state.meterReadings.some(r=>ids.has(r.periodId));
+    if(!present)missingMonths.push({month,reason:relevant.length?'Veri yüklenmemiş':'Dönem açılmamış'});
+  }
+  missingMonths.sort((a,b)=>b.month.localeCompare(a.month));
+  const missingBanner=missingMonths.length?'<div class="notice danger monthlyMissingBanner" role="status">'+
+    '<b>Eksik '+(debtMode?'borç':'tüketim')+' verileri · '+missingMonths.length+' ay</b>'+
+    '<div class="monthlyMissingTags">'+missingMonths.map(x=>
+      '<span title="'+esc(x.reason)+'">'+esc(periodListLabel(x.month))+' · '+esc(x.reason)+'</span>').join('')+'</div>'+
+    '<div class="small">Bu aylarda sistemde '+(debtMode?'tahakkuk':'sayaç okuma')+' kaydı yok. Sıfır borç olarak değerlendirmeyin.</div></div>':
+    '<div class="notice ok monthlyMissingBanner">Seçili dönemlerde '+(debtMode?'borç':'tüketim')+' kaydı bulunuyor. Bu kontrol her dairenin verisinin eksiksiz olduğunu garanti etmez.</div>';
+
   const units=meterUnits().sort((a,b)=>a.code.localeCompare(b.code,'tr',{numeric:true}));
   const reports=matching.map(p=>unitMonthlyReportSection(p,debtMode,units)).join('');
   return shell('<div class="monthlyPaymentReport monthlyUnitFiltered">'+
@@ -1674,6 +1719,7 @@ function unitMonthlyReport(){
       '<div class="small muted">'+matching.length+' dönem listeleniyor · '+(monthlyUnitYear==='all'?'Tüm yıllar':monthlyUnitYear)+
       ' / '+(monthlyUnitMonth==='all'?'Tüm aylar':MONTH_LABELS_TR[Number(monthlyUnitMonth)-1])+
       ' · En yeni dönem üstte</div></div>'+
+    missingBanner+
     (reports||'<div class="notice warn" style="margin-top:12px">Bu yıl ve ay için kayıtlı dönem bulunamadı. Filtreyi değiştir.</div>')+
     '</div>',adminMainNav());
 }
@@ -2261,12 +2307,12 @@ function unitCenterFilter(){
 }
 function managerUnits(){
   syncLateFees(true);
-  const rows=state.units.map(u=>{const rels=unitRelationships(u.id),active=rels.filter(x=>x.r.active),f=unitFinancialSummary(u.id),m=unitPeriodConsumption(u.id),search=normTR(`${u.label} ${active.map(x=>x.p.name).join(' ')}`);return `<tr data-unit-center-row data-search="${esc(search)}" data-kind="${u.type}" data-balance="${f.balance}"><td><button class="soft" onclick="openUnitCenter('${u.id}')"><b>${u.label}</b></button></td><td>${active.length?active.map(x=>`${esc(x.p.name)} <span class="small muted">${relRoleLabel(x.r.role)}</span>`).join('<br>'):'—'}</td><td>${m.cold==null?'—':trNum(m.cold,3)}</td><td>${m.hot==null?'—':trNum(m.hot,3)}</td><td>${period().boilerActive?(m.gas==null?'—':trNum(m.gas,3)):'Kapalı'}</td><td>${trMoney(f.total)}</td><td>${trMoney(f.paid)}</td><td><b class="${f.balance>0?'danger':f.balance<0?'ok':''}">${trMoney(f.balance)}</b></td><td><div class="unitListActions"><button onclick="openUnitCenter('${u.id}')">Kişi Kartı</button><button onclick="openUnitHistoryCenter('${u.id}')">Daire Geçmişi</button></div></td></tr>`}).join('');
+  const rows=state.units.map(u=>{const rels=unitRelationships(u.id),active=rels.filter(x=>x.r.active),f=unitFinancialSummary(u.id),m=unitPeriodConsumption(u.id),current=mainUnitPerson(u.id),personal=current?personLedgerEntries(u.id,current.id):{charges:[],payments:[]},personalDebt=personal.charges.reduce((n,c)=>n+debtCents(c.amount),0)/100,personalPaid=personal.payments.reduce((n,p)=>n+debtCents(p.amount),0)/100,personalBalance=personalDebt-personalPaid,search=normTR(`${u.label} ${active.map(x=>x.p.name).join(' ')}`);return `<tr data-unit-center-row data-search="${esc(search)}" data-kind="${u.type}" data-balance="${personalBalance}"><td><button class="soft" onclick="openUnitCenter('${u.id}')"><b>${u.label}</b></button></td><td>${active.length?active.map(x=>`${esc(x.p.name)} <span class="small muted">${relRoleLabel(x.r.role)}</span>`).join('<br>'):'—'}</td><td>${m.cold==null?'—':trNum(m.cold,3)}</td><td>${m.hot==null?'—':trNum(m.hot,3)}</td><td>${period().boilerActive?(m.gas==null?'—':trNum(m.gas,3)):'Kapalı'}</td><td>${current?trMoney(personalDebt):'—'}</td><td>${current?trMoney(personalPaid):'—'}</td><td><b class="${personalBalance>0?'danger':personalBalance<0?'ok':''}">${current?trMoney(personalBalance):'—'}</b></td><td><div class="unitListActions"><button onclick="openUnitCenter('${u.id}')">Kişi Kartı</button><button onclick="openUnitHistoryCenter('${u.id}')">Daire Geçmişi</button></div></td></tr>`}).join('');
   const c=`<div class="sectionHead"><div><h2>Daire Yönetim Merkezi</h2><div class="muted small">Kişiler, tüketimler, borçlar, ödemeler, geçmiş dönemler ve başlangıç verileri tek yerde.</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="card" style="margin-top:10px"><div class="unitSearchBar"><label>Ara<input id="unitSearch" placeholder="Daire veya kişi" oninput="unitCenterFilter()"></label><label>Tür<select id="unitKindFilter" onchange="unitCenterFilter()"><option value="all">Tümü</option><option value="apartment">Daireler</option><option value="shop">Dükkanlar</option></select></label><label>Bakiye<select id="unitBalanceFilter" onchange="unitCenterFilter()"><option value="all">Tümü</option><option value="debt">Borçlu</option><option value="credit">Alacaklı</option><option value="zero">Sıfır</option></select></label></div></div>
   <div class="lateRule" style="margin-top:10px"><b>Gecikme kuralı:</b> faiz, her borç satırının senin belirlediğin <b>son ödeme tarihinin ertesi günü</b> başlar. Son ödeme gününün kendisinde faiz oluşmaz.</div>
   <div class="actions" style="margin-top:10px"><button class="primary" onclick="openHistoricalArchive()">Geçmiş dönem aktarımı</button><button onclick="go('setup')">Adım Adım Güncelle</button><button onclick="openMeterSourceCenter()">Google Form sayaçları</button></div>
-  <div class="tableWrap" style="margin-top:10px"><table class="unitSummaryTable"><thead><tr><th>Bölüm</th><th>Aktif kişi</th><th>Soğuk</th><th>Sıcak</th><th>Gaz</th><th>Tahakkuk</th><th>Ödeme</th><th>Bakiye</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  <div class="tableWrap" style="margin-top:10px"><table class="unitSummaryTable"><thead><tr><th>Bölüm</th><th>Aktif kişi</th><th>Soğuk</th><th>Sıcak</th><th>Gaz</th><th>Aktif Kişi Tahakkuku</th><th>Aktif Kişi Ödemesi</th><th>Aktif Kişi Bakiyesi</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   return shell(c,[{id:'home',ico:'⌂',label:'Ana Sayfa'},{id:'periods',ico:'◫',label:'Dönemler'},{id:'units',ico:'🏠',label:'Daireler'},{id:'accounting',ico:'₺',label:'Muhasebe'},{id:'reports',ico:'▤',label:'Raporlar'}]);
 }
 function openUnit(unitId){openUnitCenter(unitId)}
