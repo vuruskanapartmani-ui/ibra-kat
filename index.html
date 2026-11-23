@@ -415,7 +415,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.51';
+const APP_VERSION = 'V1.52';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2193,31 +2193,31 @@ function ledgerDebtGroups(charges){
   return [...map.values()].sort((a,b)=>b.sort.localeCompare(a.sort));
 }
 function ledgerRowsHTML(unitId,charges,payments,personId=''){
-  const money=n=>trMoney(n);
+  const money=n=>trMoney(n),bulk=!personId;
   const debts=ledgerDebtGroups(charges).map(g=>{
-    const id=String(g.periodId||'').replace(/[^a-zA-Z0-9_:-]/g,'');
-    const due=String(g.due||'').replace(/[^0-9-]/g,'');
+    const id=String(g.periodId||'').replace(/[^a-zA-Z0-9_:-]/g,''),due=String(g.due||'').replace(/[^0-9-]/g,'');
     const names=[...new Set(g.items.map(c=>person(chargeAccountPersonId(c))?.name||'Atanmamış'))];
-    return '<tr><td>Borç</td><td>'+esc(g.periodName)+'</td><td>'+esc(g.due)+'</td><td title="'+esc(names.join(', '))+'">'+esc(names.join(', '))+'</td><td class="num"><b>'+money(g.amount)+'</b></td><td class="ledgerAct"><button onclick="showDebtComponents(\''+unitId+'\',\''+id+'\',\''+due+'\',\''+personId+'\')">Kalemler</button>'+(personId?'':'<button onclick="openChargeOwnerEditor(\''+unitId+'\',\''+id+'\',\''+due+'\')">Sorumlu değiştir</button>')+'</td></tr>';
+    const checkboxes=bulk?g.items.map(c=>{
+      const linked=state.payments.some(p=>p.chargeId===c.id||p.chargeId==='late_'+c.id);
+      return '<label style="display:inline-flex;gap:4px;align-items:center;margin-right:7px"><input type="checkbox" class="ledgerPick" data-kind="charge" data-id="'+esc(c.id)+'" '+(linked?'disabled title="Ödemeye bağlı"':'')+'><span class="small">'+esc(c.label||c.type||'Borç')+'</span></label>';
+    }).join(''):'';
+    return '<tr><td>'+(bulk?'<div>'+checkboxes+'</div>':'')+'Borç</td><td>'+esc(g.periodName)+'</td><td>'+esc(g.due)+'</td><td>'+esc(names.join(', '))+'</td><td class="num"><b>'+money(g.amount)+'</b></td><td>—</td><td class="ledgerAct"><button onclick="showDebtComponents(\''+unitId+'\',\''+id+'\',\''+due+'\',\''+personId+'\')">Kalemler</button>'+(bulk?'<button onclick="openChargeOwnerEditor(\''+unitId+'\',\''+id+'\',\''+due+'\')">Sorumlu değiştir</button>':'')+'</td></tr>';
   });
   const incomes=[...payments].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(p=>{
     const d=bankPaymentDetails(p);
-    const summary='<div class="small muted" style="overflow-wrap:anywhere">Açıklama: '+esc(d.description)+'</div>'
-      +'<div class="small muted">Hesap: '+esc(d.account)+' · Ref: '+esc(d.reference)+'</div>';
-    return '<tr><td>Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(d.bank)+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td>'
-      +'<td class="ledgerAct">'+summary+'<button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Tüm Banka Detayları</button> '
-      +(personId?'':'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>')+'</td></tr>';
+    const pick=bulk?'<input type="checkbox" class="ledgerPick" data-kind="payment" data-id="'+esc(p.id)+'" '+(p.chargeId?'disabled title="Borca bağlı ödeme"':'')+'> ':'';
+    const details='<div class="small muted" style="overflow-wrap:anywhere">Açıklama: '+esc(d.description)+'</div><div class="small muted">Hesap: '+esc(d.account)+' · Ref: '+esc(d.reference)+'</div>';
+    return '<tr><td>'+pick+'Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(person(p.personId)?.name||'Atanmamış')+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td><b>'+esc(d.bank)+'</b>'+details+'</td><td class="ledgerAct"><button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Banka detayları</button>'+(bulk?'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>':'')+'</td></tr>';
   });
-  const joined=[...debts,...incomes];
-  const totalDebt=charges.reduce((n,c)=>n+Number(c.amount||0),0);
-  const totalPaid=payments.reduce((n,p)=>n+Number(p.amount||0),0);
-  return '<div class="tableWrap"><table class="compactLedger"><thead><tr><th>İşlem</th><th>Dönem / Tarih</th><th>Son Ödeme</th><th>Banka</th><th>Tutar</th><th>Ayrıntı</th></tr></thead><tbody>'
-    +(joined.join('')||'<tr><td colspan="6">Bu hesaba bağlı işlem bulunmuyor.</td></tr>')+
-    '</tbody><tfoot><tr><th colspan="4">Toplam ödenen</th><th colspan="2">'+money(totalPaid)+'</th></tr>'+
-    '<tr><th colspan="4">Toplam borç</th><th colspan="2">'+money(totalDebt)+'</th></tr>'+
-    '<tr><th colspan="4">Denge (borç − ödeme)</th><th colspan="2">'+money(totalDebt-totalPaid)+'</th></tr></tfoot></table></div>';
+  const totalDebt=charges.reduce((n,c)=>n+Number(c.amount||0),0),totalPaid=payments.reduce((n,p)=>n+Number(p.amount||0),0);
+  const actions=bulk?'<div class="actions" style="margin:8px 0"><button class="primary" onclick="openSelectedLedgerOwnerEditor(\''+unitId+'\')">Seçilen Borç + Ödemeleri Toplu Ata</button><button onclick="openBulkLedgerOwnerEditor(\''+unitId+'\')">Tüm Hareketlerden Seç</button></div>':'';
+  return actions+'<div class="tableWrap"><table class="compactLedger"><thead><tr><th>İşlem / Seç</th><th>Dönem / Tarih</th><th>Son Ödeme</th><th>Sorumlu Kişi</th><th>Tutar</th><th>Banka / Açıklama / Referans</th><th>Ayrıntı</th></tr></thead><tbody>'+([...debts,...incomes].join('')||'<tr><td colspan="7">Bu hesaba bağlı işlem bulunmuyor.</td></tr>')+'</tbody><tfoot><tr><th colspan="4">Toplam ödenen</th><th colspan="3">'+money(totalPaid)+'</th></tr><tr><th colspan="4">Toplam borç</th><th colspan="3">'+money(totalDebt)+'</th></tr><tr><th colspan="4">Denge (borç − ödeme)</th><th colspan="3">'+money(totalDebt-totalPaid)+'</th></tr></tfoot></table></div>';
 }
-
+function openSelectedLedgerOwnerEditor(unitId){
+  const selected=[...document.querySelectorAll('.ledgerPick:checked')].map(el=>({kind:el.dataset.kind,id:el.dataset.id}));
+  if(!selected.length)return notify('Önce tablodan borç veya ödeme seç.');
+  openBulkLedgerOwnerEditor(unitId,selected);
+}
 function chargeOwnerPeriodItems(unitId,periodId,dueDate){
   return state.charges.filter(c=>c.unitId===unitId&&String(c.periodId||'')===periodId&&String(c.dueDate||'')===dueDate);
 }
@@ -2281,7 +2281,7 @@ async function saveChargeOwnerTransfer(unitId){
     closeModal();render();openUnitCenter(unitId);notify(result.changedCount+' borç yeni kişi carisine aktarıldı.');
   }catch(e){notify('Devir başarısız: '+e.message);if(btn&&btn.isConnected)btn.disabled=false}
 }
-function openBulkLedgerOwnerEditor(unitId){
+function openBulkLedgerOwnerEditor(unitId,preselected=[]){
   const charges=state.charges.filter(c=>c.unitId===unitId);
   const payments=state.payments.filter(p=>p.unitId===unitId);
   const linkedCharge=c=>payments.some(p=>p.chargeId===c.id||p.chargeId==='late_'+c.id);
@@ -2291,12 +2291,13 @@ function openBulkLedgerOwnerEditor(unitId){
     ...payments.map(p=>({kind:'payment',id:p.id,sort:p.date||'',record:p,disabled:linkedPayment(p)}))
   ].sort((a,b)=>b.sort.localeCompare(a.sort));
   if(!items.length)return notify('Dairede aktarılabilecek hareket yok.');
+  const preselectedKeys=new Set(preselected.map(x=>x.kind+'|'+x.id));
   const choices=items.map(({kind,id,record:r,disabled})=>{
     const isPayment=kind==='payment',details=isPayment?bankPaymentDetails(r):null;
     const label=isPayment?'Ödeme':'Borç';
     const owner=person(isPayment?r.personId:chargeAccountPersonId(r))?.name||'Atanmamış';
     const info=isPayment?details.bank+' · '+details.description+' · Ref: '+details.reference:(r.label||r.type||'Borç');
-    return '<label class="row" style="justify-content:flex-start;align-items:flex-start;gap:8px;padding:6px 2px"><input type="checkbox" data-ledger-kind="'+kind+'" data-ledger-id="'+esc(id)+'" style="width:18px;min-height:18px;margin:3px 0;flex:none" '+(disabled?'disabled':'')+'>'
+    return '<label class="row" style="justify-content:flex-start;align-items:flex-start;gap:8px;padding:6px 2px"><input type="checkbox" data-ledger-kind="'+kind+'" data-ledger-id="'+esc(id)+'" style="width:18px;min-height:18px;margin:3px 0;flex:none" '+(disabled?'disabled':preselectedKeys.has(kind+'|'+id)?'checked':'')+'>'
       +'<span style="flex:1"><b>'+label+' · '+esc(r.date||chargePeriodName(r))+' · '+trMoney(r.amount)+'</b>'
       +'<div class="small muted">'+esc(info)+'</div><div class="small muted">Mevcut: '+esc(owner)+(disabled?' · Borç/ödeme bağlantılı, kilitli':'')+'</div></span></label>';
   }).join('');
@@ -5569,7 +5570,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.toggleNewPeriodSecondMonth=toggleNewPeriodSecondMonth;window.saveUnitManagerExemption=saveUnitManagerExemption;window.openTwoMonthCalculation=openTwoMonthCalculation;window.calculateTwoMonths=calculateTwoMonths;window.openChargeOwnerEditor=openChargeOwnerEditor;window.saveChargeOwnerTransfer=saveChargeOwnerTransfer;window.refreshChargeOwnerScope=refreshChargeOwnerScope;window.toggleChargeOwnerSelection=toggleChargeOwnerSelection;window.openBulkLedgerOwnerEditor=openBulkLedgerOwnerEditor;window.toggleBulkLedgerSelection=toggleBulkLedgerSelection;window.saveBulkLedgerOwnerTransfer=saveBulkLedgerOwnerTransfer;window.openLedgerPaymentDetails=openLedgerPaymentDetails;window.openPaymentOwnerEditor=openPaymentOwnerEditor;window.savePaymentOwnerTransfer=savePaymentOwnerTransfer;window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.toggleNewPeriodSecondMonth=toggleNewPeriodSecondMonth;window.saveUnitManagerExemption=saveUnitManagerExemption;window.openTwoMonthCalculation=openTwoMonthCalculation;window.calculateTwoMonths=calculateTwoMonths;window.openChargeOwnerEditor=openChargeOwnerEditor;window.saveChargeOwnerTransfer=saveChargeOwnerTransfer;window.refreshChargeOwnerScope=refreshChargeOwnerScope;window.toggleChargeOwnerSelection=toggleChargeOwnerSelection;window.openBulkLedgerOwnerEditor=openBulkLedgerOwnerEditor;window.openSelectedLedgerOwnerEditor=openSelectedLedgerOwnerEditor;window.toggleBulkLedgerSelection=toggleBulkLedgerSelection;window.saveBulkLedgerOwnerTransfer=saveBulkLedgerOwnerTransfer;window.openLedgerPaymentDetails=openLedgerPaymentDetails;window.openPaymentOwnerEditor=openPaymentOwnerEditor;window.savePaymentOwnerTransfer=savePaymentOwnerTransfer;window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
