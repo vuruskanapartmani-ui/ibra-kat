@@ -428,40 +428,43 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 .personStatementMail button{min-height:40px}
 .statementPreviewFrame{overflow-x:auto;background:#e7edf2;border:1px solid #b9c7d4;border-radius:11px;padding:18px;margin-top:12px}
 .statementPreviewFrame .personStatementPrint{background:white!important;box-shadow:0 7px 28px rgba(16,35,55,.15);padding:13mm 10mm;width:210mm;min-height:297mm;max-width:none;font-family:Arial,"Segoe UI",sans-serif;font-size:9pt;color:#202a35;line-height:1.35}
-.statementPreviewFrame .statementBrand{display:flex;justify-content:space-between;border-bottom:3px solid #18364f;padding-bottom:15px}
-.statementPreviewFrame .brandTiny{font-size:8pt;font-weight:800;letter-spacing:.11em;color:#294f71}
-.statementPreviewFrame .statementBrand h1{font-size:18pt;margin:8px 0 5px;color:#152d43}
-.statementPreviewFrame .statementSubtitle{font-size:9pt;color:#697d8d}
-.statementPreviewFrame .statementStamp{font-size:15pt;text-align:right;font-weight:850;color:#153a58}
-.statementPreviewFrame .statementStamp span{display:block;font-size:7pt;color:#697d8d}
-.statementPreviewFrame .statementInfo{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin:16px 0 13px}
-.statementPreviewFrame .statementInfo>div{border:1px solid #dce5ed;padding:10px}
-.statementPreviewFrame .statementInfo span,.statementPreviewFrame .statementTotals span{display:block;font-size:7pt;font-weight:800;color:#60768a}
-.statementPreviewFrame .statementInfo strong{display:block;font-size:11pt;margin:5px 0}
-.statementPreviewFrame .statementInfo small{font-size:8pt;color:#536879}
-.statementPreviewFrame .statementTotals{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px;margin-bottom:19px}
-.statementPreviewFrame .statementTotals>div{border-top:2px solid #7b98b2;padding:9px 8px;background:#f5f8fb}
-.statementPreviewFrame .statementTotals strong{display:block;font-size:12pt;white-space:nowrap;margin-top:6px}
-.statementPreviewFrame .statementTotals .outstanding{background:#eaf1f7;border-top:3px solid #163e5f}
-.statementPreviewFrame .statementTotals small{display:block;font-size:7pt}
-.statementPreviewFrame .statementSection{font-size:10pt;border-bottom:1px solid #b7c7d4;padding-bottom:6px;display:flex;justify-content:space-between}
-.statementPreviewFrame .statementSection span{font-size:8pt;font-weight:normal;color:#67788a}
-.statementPreviewFrame .statementTable{width:100%;min-width:0!important;border-collapse:collapse;table-layout:fixed;font-size:7.25pt;margin-top:10px}
-.statementPreviewFrame .statementTable th{font-size:7pt;background:#e9eff4;color:#203b53;padding:7px 4px;white-space:normal}
-.statementPreviewFrame .statementTable td{padding:6px 4px;border-bottom:1px solid #e0e7ed;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
-.statementPreviewFrame .statementTable tbody tr:nth-child(even){background:#f8fafc}
-.statementPreviewFrame .statementTable .money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.statementPreviewFrame .statementTable .center{text-align:center}
-.statementPreviewFrame .statementTable .balance{font-weight:700}
-.statementPreviewFrame .statementTable .tiny{font-size:6.8pt;color:#64788a}
-.statementPreviewFrame .statementTable .kind{font-weight:700}
-.statementPreviewFrame .statementTable .payment{color:#17644c}
-.statementPreviewFrame .statementTable tfoot th{background:#dce8f1;border-top:2px solid #315271}
-.statementPreviewFrame .statementNotes{font-size:7.5pt;color:#5b6c7b;background:#f5f7f9;padding:10px 12px;margin-top:16px;border-left:3px solid #8da6b9}
-.statementPreviewFrame .statementNotes p{margin:4px 0}
-.statementPreviewFrame .statementFooter{border-top:1px solid #ced9e2;padding-top:8px;margin-top:15px;display:flex;justify-content:space-between;font-size:7pt;color:#697d8e}
+.personStatementPrint .statementBrand{display:flex;justify-content:space-between;border-bottom:3px solid #18364f;padding-bottom:15px}
+.personStatementPrint .brandTiny{font-size:8pt;font-weight:800;letter-spacing:.11em;color:#294f71}
+.personStatementPrint .statementBrand h1{font-size:18pt;margin:8px 0 5px;color:#152d43}
+.personStatementPrint .statementSubtitle{font-size:9pt;color:#697d8d}
+.personStatementPrint .statementStamp{font-size:15pt;text-align:right;font-weight:850;color:#153a58}
+.personStatementPrint .statementStamp span{display:block;font-size:7pt;color:#697d8d}
+.personStatementPrint .statementInfo{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin:16px 0 13px}
+.personStatementPrint .statementInfo>div{border:1px solid #dce5ed;padding:10px}
+.personStatementPrint .statementInfo span,.personStatementPrint .statementTotals span{display:block;font-size:7pt;font-weight:800;color:#60768a}
+.personStatementPrint .statementInfo strong{display:block;font-size:11pt;margin:5px 0}
+.personStatementPrint .statementInfo small{font-size:8pt;color:#536879}
+.personStatementPrint .statementTotals{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px;margin-bottom:19px}
+.personStatementPrint .statementTotals>div{border-top:2px solid #7b98b2;padding:9px 8px;background:#f5f8fb}
+.personStatementPrint .statementTotals strong{display:block;font-size:12pt;white-space:nowrap;margin-top:6px}
+.personStatementPrint .statementTotals .outstanding{background:#eaf1f7;border-top:3px solid #163e5f}
+.personStatementPrint .statementTotals small{display:block;font-size:7pt}
+.personStatementPrint .statementSection{font-size:10pt;border-bottom:1px solid #b7c7d4;padding-bottom:6px;display:flex;justify-content:space-between}
+.personStatementPrint .statementSection span{font-size:8pt;font-weight:normal;color:#67788a}
+.personStatementPrint .statementTable{width:100%;min-width:0!important;border-collapse:collapse;table-layout:fixed;font-size:7.25pt;margin-top:10px}
+.personStatementPrint .statementTable th{font-size:7pt;background:#e9eff4;color:#203b53;padding:7px 4px;white-space:normal}
+.personStatementPrint .statementTable td{padding:6px 4px;border-bottom:1px solid #e0e7ed;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.personStatementPrint .statementTable tbody tr:nth-child(even){background:#f8fafc}
+.personStatementPrint .statementTable .money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.personStatementPrint .statementTable .center{text-align:center}
+.personStatementPrint .statementTable .balance{font-weight:700}
+.personStatementPrint .statementTable .tiny{font-size:6.8pt;color:#64788a}
+.personStatementPrint .statementTable .kind{font-weight:700}
+.personStatementPrint .statementTable .payment{color:#17644c}
+.personStatementPrint .statementTable tfoot th{background:#dce8f1;border-top:2px solid #315271}
+.personStatementPrint .statementNotes{font-size:7.5pt;color:#5b6c7b;background:#f5f7f9;padding:10px 12px;margin-top:16px;border-left:3px solid #8da6b9}
+.personStatementPrint .statementNotes p{margin:4px 0}
+.personStatementPrint .statementFooter{border-top:1px solid #ced9e2;padding-top:8px;margin-top:15px;display:flex;justify-content:space-between;font-size:7pt;color:#697d8e}
 @media(max-width:760px){.personStatementMail{flex-direction:column;align-items:stretch}.personStatementMail label{width:100%;max-width:none}.personStatementActions button{flex:1}}
 
+
+.personStatementPrint.pdfExportMode{width:190mm!important;max-width:190mm!important;min-height:0!important;padding:0!important;box-shadow:none!important;margin:0!important}
+.personStatementPrint.pdfExportMode .statementTable{min-width:0!important;width:100%!important}
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -3635,20 +3638,16 @@ async function downloadPersonLedgerPdf(unitId,personId){
   if(button){button.disabled=true;button.textContent='PDF hazırlanıyor…';}
   if(status)status.textContent='A4 PDF oluşturuluyor; bu işlem verileri değiştirmez.';
   try{
-    const target=content.cloneNode(true);
-    target.style.width='190mm';target.style.margin='0';
-    target.style.position='fixed';target.style.left='-10000px';target.style.top='0';
-    target.style.zIndex='-1';
-    document.body.appendChild(target);
+    content.classList.add('pdfExportMode');
     try{
       await window.html2pdf().set({
         margin:[11,10,11,10],filename:personStatementFileName(data),
-        image:{type:'jpeg',quality:.97},
-        html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,windowWidth:900},
+        image:{type:'jpeg',quality:.98},
+        html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false},
         jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
         pagebreak:{mode:['css','legacy'],avoid:['tr','.statementBrand','.statementInfo','.statementTotals','.statementNotes']}
-      }).from(target).save();
-    }finally{target.remove();}
+      }).from(content).save();
+    }finally{content.classList.remove('pdfExportMode');}
     if(status)status.textContent='PDF indirme isteği oluşturuldu. Dosyayı kontrol edin.';
   }catch(e){
     if(status)status.textContent='PDF indirilemedi: '+(e.message||e)+'. “Yazdır / PDF Kaydet” seçeneğini kullanın.';
