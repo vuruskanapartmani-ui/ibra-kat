@@ -404,6 +404,10 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 .unitHistoryPeople{margin:10px 0}
 .unitHistoryPeople>summary{cursor:pointer}
 @media(max-width:760px){.unitHistoryFilters{grid-template-columns:1fr}.unitHistoryTable{overflow:auto}.unitHistoryTable table{min-width:850px}}
+
+/* V1.54 list entry points */
+.unitListActions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.unitListActions button{min-height:30px!important;padding:4px 8px!important;font-size:11px!important;border-radius:6px!important}
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -2148,7 +2152,7 @@ function unitCenterFilter(){
 }
 function managerUnits(){
   syncLateFees(true);
-  const rows=state.units.map(u=>{const rels=unitRelationships(u.id),active=rels.filter(x=>x.r.active),f=unitFinancialSummary(u.id),m=unitPeriodConsumption(u.id),search=normTR(`${u.label} ${active.map(x=>x.p.name).join(' ')}`);return `<tr data-unit-center-row data-search="${esc(search)}" data-kind="${u.type}" data-balance="${f.balance}"><td><button class="soft" onclick="openUnitCenter('${u.id}')"><b>${u.label}</b></button></td><td>${active.length?active.map(x=>`${esc(x.p.name)} <span class="small muted">${relRoleLabel(x.r.role)}</span>`).join('<br>'):'—'}</td><td>${m.cold==null?'—':trNum(m.cold,3)}</td><td>${m.hot==null?'—':trNum(m.hot,3)}</td><td>${period().boilerActive?(m.gas==null?'—':trNum(m.gas,3)):'Kapalı'}</td><td>${trMoney(f.total)}</td><td>${trMoney(f.paid)}</td><td><b class="${f.balance>0?'danger':f.balance<0?'ok':''}">${trMoney(f.balance)}</b></td><td><button onclick="openUnitCenter('${u.id}')">Aç</button></td></tr>`}).join('');
+  const rows=state.units.map(u=>{const rels=unitRelationships(u.id),active=rels.filter(x=>x.r.active),f=unitFinancialSummary(u.id),m=unitPeriodConsumption(u.id),search=normTR(`${u.label} ${active.map(x=>x.p.name).join(' ')}`);return `<tr data-unit-center-row data-search="${esc(search)}" data-kind="${u.type}" data-balance="${f.balance}"><td><button class="soft" onclick="openUnitCenter('${u.id}')"><b>${u.label}</b></button></td><td>${active.length?active.map(x=>`${esc(x.p.name)} <span class="small muted">${relRoleLabel(x.r.role)}</span>`).join('<br>'):'—'}</td><td>${m.cold==null?'—':trNum(m.cold,3)}</td><td>${m.hot==null?'—':trNum(m.hot,3)}</td><td>${period().boilerActive?(m.gas==null?'—':trNum(m.gas,3)):'Kapalı'}</td><td>${trMoney(f.total)}</td><td>${trMoney(f.paid)}</td><td><b class="${f.balance>0?'danger':f.balance<0?'ok':''}">${trMoney(f.balance)}</b></td><td><div class="unitListActions"><button onclick="openUnitCenter('${u.id}')">Kişi Kartı</button><button onclick="openUnitHistoryCenter('${u.id}')">Daire Geçmişi</button></div></td></tr>`}).join('');
   const c=`<div class="sectionHead"><div><h2>Daire Yönetim Merkezi</h2><div class="muted small">Kişiler, tüketimler, borçlar, ödemeler, geçmiş dönemler ve başlangıç verileri tek yerde.</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="card" style="margin-top:10px"><div class="unitSearchBar"><label>Ara<input id="unitSearch" placeholder="Daire veya kişi" oninput="unitCenterFilter()"></label><label>Tür<select id="unitKindFilter" onchange="unitCenterFilter()"><option value="all">Tümü</option><option value="apartment">Daireler</option><option value="shop">Dükkanlar</option></select></label><label>Bakiye<select id="unitBalanceFilter" onchange="unitCenterFilter()"><option value="all">Tümü</option><option value="debt">Borçlu</option><option value="credit">Alacaklı</option><option value="zero">Sıfır</option></select></label></div></div>
   <div class="lateRule" style="margin-top:10px"><b>Gecikme kuralı:</b> faiz, her borç satırının senin belirlediğin <b>son ödeme tarihinin ertesi günü</b> başlar. Son ödeme gününün kendisinde faiz oluşmaz.</div>
@@ -2772,7 +2776,10 @@ function openUnitHistoryCenter(unitId){
       '<tbody>'+rows+'</tbody></table></div></div>'+
       '<div class="actions" style="margin:10px 0"><button onclick="openUnitLedger(\''+unitId+'\')">Dairenin ayrıntılı carisi</button>'+
       '<button onclick="openUnassignedLedger(\''+unitId+'\')">Atanmamış borçlar</button>'+
-      '<button onclick="openUnitHistory(\''+unitId+'\')">Tüketim geçmişi</button></div></div>');
+      '<button onclick="openUnitHistory(\''+unitId+'\')">Tüketim geçmişi</button>'+
+      '<button onclick="openChargeOwnerEditor(\''+unitId+'\')">Borç sorumluları</button>'+
+      '<button onclick="openHouseholdPersonForm(\''+unitId+'\')">+ Kişi ekle</button>'+
+      '<button onclick="openUnitNotificationEmails(\''+unitId+'\')">Bildirim adresleri</button></div></div>');
 }
 function openUnitCenter(unitId){
   const u=unit(unitId);
