@@ -2884,7 +2884,7 @@ async function savePersonProfile(unitId,personId){
       if(!active)r.loginEnabled=false;
       return {changed:before!==stableSnapshot({p,r}),name,active};
     },'Kişi kartı güncellendi',r=>unit(unitId).label+' · '+r.name+' · '+(r.active?'Aktif':'Pasif'));
-    closeModal();render();openUnitCenter(unitId);
+    closeModal();render();openPersonLedger(unitId,personId);
     notify(result.changed?'Kişi değişiklikleri sunucuya kaydedilip doğrulandı.':'Değişiklik yok.');
   }catch(e){
     if(msg)msg.textContent='Kaydedilemedi: '+(e.message||e)+' · Yerel kopya korunur.';
