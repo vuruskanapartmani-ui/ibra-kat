@@ -2075,7 +2075,7 @@ function applyManagerDuesExemption(periodId,previousUnitId=null){
 function managerPeriodDetail(){
   const p=period(); const m=state.meterReadings.filter(x=>x.periodId===p.id); const inv=state.invoices.filter(x=>x.periodId===p.id);
   const count=t=>m.filter(x=>x.type===t).length;
-  const c=`<div class="sectionHead"><div><h2>${isoMonthLabel(p.month)}</h2><div class="muted small">${p.status==='locked'?'Kesinleşmiş dönem':'Veri girişi devam ediyor'}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kilitli':'Taslak'}</span></div>
+  const c=`<div class="sectionHead"><div><h2>${periodDisplayName(p)}</h2><div class="muted small">${p.status==='locked'?'Kesinleşmiş dönem':'Veri girişi devam ediyor'}</div></div><span class="pill ${p.status==='locked'?'ok':'warn'}">${p.status==='locked'?'Kilitli':'Taslak'}</span></div>
     <div style="margin-top:10px">${dueDateEditor(p)}</div>
     <div class="card mode" style="margin-top:10px"><div class="row"><span>Merkezi sistem</span><b>${p.boilerActive?'Kombi Aktif':'Kombi Kapalı'}</b></div><div class="row"><span>Kazan sıcaklığı</span><b>${p.boilerTemp} °C</b></div><div class="row"><span>Son ödeme</span><b>${p.dueDate}</b></div><div class="row"><span>Aidat</span><b>${trMoney(p.dues)}</b></div></div>
     ${managerDuesExemptionEditor(p)}
@@ -4016,7 +4016,7 @@ function renderArchiveBatchPlan(output,records){
     '<p>'+plan.debt.length+' aktarılacak borç kalemi · '+plan.readings.length+
     ' yeni sayaç · '+plan.repeated+' değişmeyecek mevcut kayıt · '+trMoney2(amounts/100)+'</p>'+
     (plan.corrected?'<div class="notice warn"><b>'+plan.corrected+' eski hatalı kayıt düzeltilecek.</b> Yeni bir borç eklemek yerine önceki yanlış tutar değiştirilecek. Ödemeyle bağlantılı veya PDF dışından oluşturulan kayıtlar otomatik düzeltilemez.</div>':'')+
-    (plan.otherPeriods?'<p class="small ok">'+plan.otherPeriods+' borç kalemi dosyanın varsayılan ayı dışında farklı aylara ait; kendi dönemlerine ayrılarak aktarılacak.</p>':'')+
+    (plan.otherPeriods?'<p class="small ok">'+plan.otherPeriods+' borç kalemi ilk aya ait görünüyor; seçilen ortak dönemin tek tahakkukuna dahil edilecek.</p>':'')+
     plan.errors.map(e=>'<p class="danger">'+esc(e)+'</p>').join('')+
     (plan.errors.length?'<p>'+esc(archivePdfHelp(plan.errors[0]))+'</p>':'')+
     (plan.debt.length?'<p>Her borcu açarak sorumluyu ve tutarı belirleyin. Bir ayın tamamında tek tarihli sorumlu varsa önerilir. Geçiş aylarında dağılımı kendiniz yapabilirsiniz.</p>':'')+
@@ -4088,10 +4088,10 @@ function renderArchivePdfReview(output,context,rows,ready,reset){
   const task='pdf-direct-preview';
   const count=columns.length;
   const computed=debtMode?'<th>Kalem Toplamı</th><th>PDF Farkı</th>':'<th>Gaz m³ (endeksten)</th>';
-  output.innerHTML='<div class="archiveReviewHeading"><div><h3>PDF değerlerini kontrol et · '+esc(isoMonthLabel(context.month))+'</h3>'+
+  output.innerHTML='<div class="archiveReviewHeading"><div><h3>PDF değerlerini kontrol et · '+esc(archivePeriodLabel(context.startMonth,context.month))+'</h3>'+
     '<p class="small muted">Yanlış okunan hücreyi değiştir. <b>Değişiklikler yeşil</b>, kontrol gereken tutarsızlıklar <b>turuncu</b> görünür. Önizleme aşağıda açılır.</p></div>'+
     '<span class="pill warn" data-review-state>Kontrol bekliyor</span></div>'+
-    '<div class="notice" style="margin-bottom:9px">Kayıt dönemi: <b>'+esc(isoMonthLabel(context.month))+'</b> · Son ödeme: '+esc(context.due||'—')+
+    '<div class="notice" style="margin-bottom:9px">Kayıt dönemi: <b>'+esc(archivePeriodLabel(context.startMonth,context.month))+'</b> · Son ödeme: '+esc(context.due||'—')+
     (debtMode?' · PDF toplamı ile kalemler arasında 1 TL’nin altındaki fark ayrı yuvarlama kaydıyla korunur.':' · Gaz tüketimi PDF’deki “1” yerine önceki/yeni endeks farkından hesaplanır.')+'</div>'+
     '<div class="tableWrap archiveReviewTable"><table><thead><tr>'+columns.map(c=>'<th>'+esc(c)+'</th>').join('')+computed+'</tr></thead><tbody>'+
     rows.map((row,i)=>'<tr>'+columns.map((col,j)=>'<td><input aria-label="'+esc((i+1)+'. satır · '+col)+'" data-original="'+esc(row[j]??'')+'" data-row="'+i+'" data-col="'+j+'" value="'+esc(row[j]??'')+'"></td>').join('')+
