@@ -416,6 +416,52 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 
 /* V1.55 selected person identity is clickable in the resident directory */
 .residentNameLink{display:inline!important;background:transparent!important;border:0!important;box-shadow:none!important;padding:1px 2px!important;margin:0!important;color:#0f6fc6!important;font-weight:750!important;min-height:unset!important;text-align:left;text-decoration:underline}
+
+/* V1.56: A4 personal ledger report export preview */
+.modalBack:has(.personStatementView){padding:7px;place-items:center}
+.modalBack:has(.personStatementView)>.modal{width:min(98vw,1450px)!important;max-width:min(98vw,1450px)!important;max-height:calc(100dvh - 14px)!important;overflow:auto}
+.personStatementActions{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin:12px 0}
+.personStatementActions button{min-height:40px}
+.personStatementMail{display:flex;align-items:end;gap:9px;margin:8px 0}
+.personStatementMail label{flex:1;max-width:550px}
+.personStatementMail input{min-height:40px}
+.personStatementMail button{min-height:40px}
+.statementPreviewFrame{overflow-x:auto;background:#e7edf2;border:1px solid #b9c7d4;border-radius:11px;padding:18px;margin-top:12px}
+.statementPreviewFrame .personStatementPrint{background:white!important;box-shadow:0 7px 28px rgba(16,35,55,.15);padding:13mm 10mm;width:210mm;min-height:297mm;max-width:none;font-family:Arial,"Segoe UI",sans-serif;font-size:9pt;color:#202a35;line-height:1.35}
+.statementPreviewFrame .statementBrand{display:flex;justify-content:space-between;border-bottom:3px solid #18364f;padding-bottom:15px}
+.statementPreviewFrame .brandTiny{font-size:8pt;font-weight:800;letter-spacing:.11em;color:#294f71}
+.statementPreviewFrame .statementBrand h1{font-size:18pt;margin:8px 0 5px;color:#152d43}
+.statementPreviewFrame .statementSubtitle{font-size:9pt;color:#697d8d}
+.statementPreviewFrame .statementStamp{font-size:15pt;text-align:right;font-weight:850;color:#153a58}
+.statementPreviewFrame .statementStamp span{display:block;font-size:7pt;color:#697d8d}
+.statementPreviewFrame .statementInfo{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin:16px 0 13px}
+.statementPreviewFrame .statementInfo>div{border:1px solid #dce5ed;padding:10px}
+.statementPreviewFrame .statementInfo span,.statementPreviewFrame .statementTotals span{display:block;font-size:7pt;font-weight:800;color:#60768a}
+.statementPreviewFrame .statementInfo strong{display:block;font-size:11pt;margin:5px 0}
+.statementPreviewFrame .statementInfo small{font-size:8pt;color:#536879}
+.statementPreviewFrame .statementTotals{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px;margin-bottom:19px}
+.statementPreviewFrame .statementTotals>div{border-top:2px solid #7b98b2;padding:9px 8px;background:#f5f8fb}
+.statementPreviewFrame .statementTotals strong{display:block;font-size:12pt;white-space:nowrap;margin-top:6px}
+.statementPreviewFrame .statementTotals .outstanding{background:#eaf1f7;border-top:3px solid #163e5f}
+.statementPreviewFrame .statementTotals small{display:block;font-size:7pt}
+.statementPreviewFrame .statementSection{font-size:10pt;border-bottom:1px solid #b7c7d4;padding-bottom:6px;display:flex;justify-content:space-between}
+.statementPreviewFrame .statementSection span{font-size:8pt;font-weight:normal;color:#67788a}
+.statementPreviewFrame .statementTable{width:100%;min-width:0!important;border-collapse:collapse;table-layout:fixed;font-size:7.25pt;margin-top:10px}
+.statementPreviewFrame .statementTable th{font-size:7pt;background:#e9eff4;color:#203b53;padding:7px 4px;white-space:normal}
+.statementPreviewFrame .statementTable td{padding:6px 4px;border-bottom:1px solid #e0e7ed;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.statementPreviewFrame .statementTable tbody tr:nth-child(even){background:#f8fafc}
+.statementPreviewFrame .statementTable .money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.statementPreviewFrame .statementTable .center{text-align:center}
+.statementPreviewFrame .statementTable .balance{font-weight:700}
+.statementPreviewFrame .statementTable .tiny{font-size:6.8pt;color:#64788a}
+.statementPreviewFrame .statementTable .kind{font-weight:700}
+.statementPreviewFrame .statementTable .payment{color:#17644c}
+.statementPreviewFrame .statementTable tfoot th{background:#dce8f1;border-top:2px solid #315271}
+.statementPreviewFrame .statementNotes{font-size:7.5pt;color:#5b6c7b;background:#f5f7f9;padding:10px 12px;margin-top:16px;border-left:3px solid #8da6b9}
+.statementPreviewFrame .statementNotes p{margin:4px 0}
+.statementPreviewFrame .statementFooter{border-top:1px solid #ced9e2;padding-top:8px;margin-top:15px;display:flex;justify-content:space-between;font-size:7pt;color:#697d8e}
+@media(max-width:760px){.personStatementMail{flex-direction:column;align-items:stretch}.personStatementMail label{width:100%;max-width:none}.personStatementActions button{flex:1}}
+
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -462,12 +508,13 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script>
 /* IBRA KAT V1.11 - full resident history + invoice OCR + caretaker review workflow.
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.55';
+const APP_VERSION = 'V1.56';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2566,6 +2613,7 @@ function openPersonLedger(unitId,personId){
   openModal('<h2>'+esc(p.name)+' · Kişisel Cari</h2><div class="small muted">'+esc(u.label)+' · '+esc(dateInfo)+'</div>'
     +'<div class="notice">Bu ekranda yalnızca kişiye bağlı ve sorumluluk tarihleri içindeki borçlar ile ödemeler yer alır. Önceki kişilerin işlemleri eklenmez. Dönem ortasındaki geçişler ayrıca kontrol edilir.</div>'
     +ledgerRowsHTML(unitId,entries.charges,entries.payments,personId)
+    +'<div class="actions personLedgerExportBar" style="margin:12px 0"><button class="primary" onclick="openPersonLedgerReport(\''+unitId+'\',\''+personId+'\')">A4 PDF / Yazdır / E-posta</button></div>'
     +'<div class="actions" style="margin-top:12px"><button onclick="closeModal();go(\'units\')">← Daire Listesi</button><button onclick="openPersonProfileEditor(\''+unitId+'\',\''+personId+'\')">Kişi Bilgileri</button>'+(session?.role==='manager'?'<button class="primary" onclick="openUnitHistoryCenter(\''+unitId+'\')">Dairenin Tüm Geçmişi</button>':'')+'</div>');
 }
 
@@ -3430,25 +3478,212 @@ function openUnitLedger(unitId){
 }
 function openPaymentForUnit(unitId){openPayment();setTimeout(()=>{const e=$('#payUnit');if(e){e.value=unitId;refreshPaymentPeople()}},0)}
 
-function emailPersonLedger(unitId,personId){
-  const u=unit(unitId),pp=person(personId);
-  if(!pp){notify('Kişi kaydı bulunamadı.');return}
-  const ppEmails=personEmails(pp); if(!ppEmails.length){notify('Bu kişinin kayıtlı e-posta adresi yok.');return}
+/* V1.56 Personal A4 ledger statement: source = selected person's own ledger only. */
+function personLedgerReportData(unitId,personId){
+  const u=unit(unitId),p=person(personId);
+  if(!u||!p||!state.responsibilities.some(r=>r.unitId===unitId&&r.personId===personId)){
+    throw new Error('Bu daireye ait kişi kaydı bulunamadı.');
+  }
   const entries=personLedgerEntries(unitId,personId);
-  const charges=entries.charges;
-  const pays=entries.payments;
-  const total=charges.reduce((a,c)=>a+Number(c.amount||0),0);
-  const paid=pays.reduce((a,x)=>a+Number(x.amount||0),0);
-  const balance=total-paid;
   const rows=[
-    ...charges.map(c=>({date:(period(c.periodId)?.month||'')+'-01',kind:'Tahakkuk',desc:c.label||c.type||'Tahakkuk',amount:Number(c.amount||0)})),
-    ...pays.map(x=>({date:x.date||((period(x.periodId)?.month||'')+'-01'),kind:'Ödeme',desc:`${x.bankName?x.bankName+' · ':''}${x.description||'Tahsilat'}`,amount:-Number(x.amount||0)}))
-  ].sort((a,b)=>a.date.localeCompare(b.date));
-  const details=rows.length?rows.map(r=>`${r.date||'—'} | ${r.kind} | ${r.desc} | ${r.amount<0?'-':''}${trMoney(Math.abs(r.amount))}`).join('\n'):'Henüz hesap hareketi bulunmuyor.';
-  const subject=`${u.label} - ${pp.name} Cari Hesap Özeti`;
-  const body=`Sayın ${pp.name},\n\n${u.label} için adınıza kayıtlı tüm hesap hareketleri aşağıdadır.\n\nTOPLAM TAHAKKUK: ${trMoney(total)}\nTOPLAM ÖDEME: ${trMoney(paid)}\nGÜNCEL BAKİYE: ${trMoney(balance)}\n\nHESAP HAREKETLERİ\n${details}\n\nBu döküm sistemde adınıza kayıtlı tüm tahakkuk ve ödemeleri içerir.\n\nIBRA KAT`;
-  window.location.href=`mailto:${encodeURIComponent(ppEmails.join(','))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  state.notifications.push({id:uid('n'),periodId:null,unitId,personId,channel:'email',to:ppEmails.join(','),at:new Date().toISOString(),status:'manual-opened',type:'full-person-ledger'});saveState();
+    ...entries.charges.map(c=>({
+      date:ledgerChargePeriodDate(c)||c.dueDate||'',
+      period:chargePeriodName(c),
+      due:c.dueDate||'',
+      kind:'Borç',
+      detail:c.label||c.type||'Tahakkuk',
+      debit:Math.round(Number(c.amount||0)*100),
+      credit:0,
+      id:c.id
+    })),
+    ...entries.payments.map(pay=>{
+      const d=bankPaymentDetails(pay);
+      return {
+        date:pay.date||'',period:pay.periodId?(state.periods.find(x=>x.id===pay.periodId)?.month||''):'',
+        due:'',kind:'Ödeme',detail:d.bank+(d.description&&d.description!=='Açıklama bulunmuyor'?' · '+d.description:''),
+        debit:0,credit:Math.round(Number(pay.amount||0)*100),id:pay.id
+      };
+    })
+  ].sort((a,b)=>a.date.localeCompare(b.date)||(a.kind==='Borç'?-1:1)||a.id.localeCompare(b.id));
+  const debt=rows.reduce((n,r)=>n+r.debit,0);
+  const paid=rows.reduce((n,r)=>n+r.credit,0);
+  let running=0;
+  rows.forEach(r=>{running+=r.debit-r.credit;r.balance=running;});
+  const links=ledgerResponsibilityBounds(unitId,personId);
+  const first=links.map(x=>x.startDate).filter(Boolean).sort()[0]||'—';
+  const last=links.some(x=>x.active)?'Devam ediyor':links.map(x=>x.endDate).filter(Boolean).sort().at(-1)||'—';
+  return {u,p,unitId,personId,rows,debt,paid,balance:debt-paid,first,last,emails:personEmails(p),generated:new Date()};
+}
+function personStatementMoney(cents){
+  return new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(cents/100)+' TL';
+}
+function personStatementDate(value){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'—';
+  const [y,m,d]=value.split('-');return d+'.'+m+'.'+y;
+}
+function personLedgerReportMarkup(data){
+  const date=new Intl.DateTimeFormat('tr-TR',{dateStyle:'long',timeStyle:'short'}).format(data.generated);
+  const rows=data.rows.length?data.rows.map((r,i)=>
+    '<tr><td class="center">'+(i+1)+'</td><td>'+esc(personStatementDate(r.date))+'</td><td>'+esc(r.period||'—')+'</td>'+
+    '<td class="kind '+(r.kind==='Ödeme'?'payment':'')+'">'+esc(r.kind)+'</td>'+
+    '<td class="description">'+esc(r.detail||'—')+(r.due?'<div class="tiny">Son ödeme: '+esc(personStatementDate(r.due))+'</div>':'')+'</td>'+
+    '<td class="money">'+(r.debit?esc(personStatementMoney(r.debit)):'—')+'</td>'+
+    '<td class="money">'+(r.credit?esc(personStatementMoney(r.credit)):'—')+'</td>'+
+    '<td class="money balance">'+esc(personStatementMoney(r.balance))+'</td></tr>').join(''):
+    '<tr><td colspan="8" class="noRecords">Bu kişiye ait borç veya ödeme kaydı bulunmuyor.</td></tr>';
+  return '<div class="statementBrand"><div><div class="brandTiny">ŞEHİT ERHAN VURUŞKAN APARTMANI</div>'+
+    '<h1>KİŞİSEL CARİ HESAP EKSTRESİ</h1><div class="statementSubtitle">Borç ve tahsilat hareketleri · A4 hesap dökümü</div></div>'+
+    '<div class="statementStamp">IBRAKAT<br><span>Yönetim Sistemi</span></div></div>'+
+    '<div class="statementInfo"><div><span>KİŞİ / HESAP SAHİBİ</span><strong>'+esc(data.p.name)+'</strong>'+
+    '<small>'+esc(data.u.label)+' · Kişiye özel hareketler</small></div>'+
+    '<div><span>HESAP DÖNEMİ</span><strong>'+esc(personStatementDate(data.first))+' – '+esc(personStatementDate(data.last))+'</strong>'+
+    '<small>Rapor tarihi: '+esc(date)+'</small></div></div>'+
+    '<div class="statementTotals"><div><span>TOPLAM TAHAKKUK</span><strong>'+esc(personStatementMoney(data.debt))+'</strong></div>'+
+    '<div><span>TOPLAM ÖDEME</span><strong>'+esc(personStatementMoney(data.paid))+'</strong></div>'+
+    '<div class="outstanding"><span>NET BAKİYE (BORÇ − ÖDEME)</span><strong>'+esc(personStatementMoney(data.balance))+'</strong>'+
+    '<small>'+(data.balance>0?'Borç bakiyesi':data.balance<0?'Alacak / fazla ödeme':'Hesap dengede')+'</small></div></div>'+
+    '<h2 class="statementSection">HESAP HAREKETLERİ <span>'+data.rows.length+' işlem · eskiden yeniye</span></h2>'+
+    '<table class="statementTable"><colgroup><col style="width:4%"><col style="width:11%"><col style="width:11%"><col style="width:8%">'+
+    '<col style="width:26%"><col style="width:13%"><col style="width:13%"><col style="width:14%"></colgroup>'+
+    '<thead><tr><th>No</th><th>İşlem Tarihi</th><th>Dönem</th><th>Tür</th><th>Açıklama / Son Ödeme</th>'+
+    '<th class="money">Borç</th><th class="money">Ödeme</th><th class="money">Bakiye</th></tr></thead>'+
+    '<tbody>'+rows+'</tbody><tfoot><tr><th colspan="5">GENEL TOPLAM</th>'+
+    '<th class="money">'+esc(personStatementMoney(data.debt))+'</th>'+
+    '<th class="money">'+esc(personStatementMoney(data.paid))+'</th>'+
+    '<th class="money">'+esc(personStatementMoney(data.balance))+'</th></tr></tfoot></table>'+
+    '<div class="statementNotes"><strong>Bilgilendirme</strong>'+
+    '<p>Bu ekstre yalnızca adı belirtilen kişiye atanmış borç ve ödeme kayıtlarını içerir. Diğer sakinlere, eski kiracılara ve dairede atanmayı bekleyen hareketlere ait bilgiler bu rapora dahil edilmez.</p>'+
+    '<p>Ödeme tutarları bankadaki hareketin mevcut sistem eşleştirmesine göre gösterilir. İhtilaf halinde banka dekontu ve tahakkuk belgesi esas alınarak kontrol yapılmalıdır.</p></div>'+
+    '<div class="statementFooter"><span>Şehit Erhan Vuruşkan Apartmanı · IBRAKAT</span><span>Oluşturulma: '+esc(date)+'</span></div>';
+}
+const PERSON_STATEMENT_PRINT_CSS=String.raw`
+@page{size:A4 portrait;margin:13mm 10mm 14mm}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#fff;color:#202a35;font-family:Arial,"Segoe UI",sans-serif}
+.personStatementPrint{width:190mm;max-width:100%;margin:0 auto;background:#fff;font-size:9pt;line-height:1.35}
+.statementBrand{display:flex;align-items:flex-start;justify-content:space-between;padding:0 0 15px;border-bottom:3px solid #18364f;gap:15px}
+.brandTiny{font-size:8pt;font-weight:800;letter-spacing:.11em;color:#294f71}
+.statementBrand h1{font-size:18pt;line-height:1.12;margin:8px 0 5px;font-weight:800;color:#152d43}
+.statementSubtitle{font-size:9pt;color:#697d8d}
+.statementStamp{font-size:15pt;text-align:right;font-weight:850;color:#153a58;letter-spacing:.07em}
+.statementStamp span{display:block;font-size:7pt;letter-spacing:0;font-weight:600;color:#697d8d}
+.statementInfo{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin:16px 0 13px}
+.statementInfo>div{border:1px solid #dce5ed;padding:10px;border-radius:4px}
+.statementInfo span,.statementTotals span{display:block;font-size:7pt;font-weight:800;letter-spacing:.06em;color:#60768a}
+.statementInfo strong{display:block;font-size:11pt;margin:5px 0 3px;overflow-wrap:anywhere}
+.statementInfo small{font-size:8pt;color:#536879}
+.statementTotals{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px;margin-bottom:19px}
+.statementTotals>div{border-top:2px solid #7b98b2;padding:9px 8px;background:#f5f8fb;min-width:0}
+.statementTotals strong{display:block;font-size:12pt;white-space:nowrap;margin-top:6px;font-variant-numeric:tabular-nums}
+.statementTotals .outstanding{border-top:3px solid #163e5f;background:#eaf1f7}
+.statementTotals .outstanding small{display:block;font-size:7pt;color:#4b6072;margin-top:4px}
+.statementSection{font-size:10pt;letter-spacing:.05em;border-bottom:1px solid #b7c7d4;padding-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.statementSection span{font-size:8pt;letter-spacing:0;font-weight:normal;color:#67788a}
+.statementTable{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7.25pt;margin-top:10px}
+.statementTable th{font-size:7pt;text-align:left;background:#e9eff4;color:#203b53;padding:7px 4px;white-space:normal;vertical-align:bottom}
+.statementTable td{padding:6px 4px;vertical-align:top;border-bottom:1px solid #e0e7ed;overflow-wrap:anywhere;word-break:normal}
+.statementTable tbody tr:nth-child(even){background:#f8fafc}
+.statementTable .center{text-align:center}
+.statementTable .money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.01em}
+.statementTable .balance{font-weight:700}
+.statementTable .kind{font-weight:700}
+.statementTable .payment{color:#17644c}
+.statementTable .tiny{font-size:6.8pt;color:#64788a;margin-top:3px}
+.statementTable tfoot th{background:#dce8f1;border-top:2px solid #315271;font-size:7pt}
+.statementTable .noRecords{text-align:center;padding:18px;color:#7a8b98}
+.statementTable thead{display:table-header-group}
+.statementTable tfoot{display:table-row-group}
+.statementTable tr{break-inside:avoid;page-break-inside:avoid}
+.statementNotes{font-size:7.5pt;color:#5b6c7b;background:#f5f7f9;padding:10px 12px;margin-top:16px;border-left:3px solid #8da6b9;break-inside:avoid}
+.statementNotes strong{color:#2c4359}
+.statementNotes p{margin:4px 0}
+.statementFooter{border-top:1px solid #ced9e2;padding-top:8px;margin-top:15px;display:flex;justify-content:space-between;font-size:7pt;color:#697d8e;break-inside:avoid}
+@media print{.personStatementPrint{width:100%}html,body{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+`;
+function personStatementFileName(data){
+  const safe=String(data.p.name||'kisi').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'');
+  const code=String(data.u.label||'daire').replace(/[^a-zA-Z0-9]+/g,'_');
+  return 'IBRAKAT_'+code+'_'+safe+'_Kisisel_Cari_'+new Date().toISOString().slice(0,10)+'.pdf';
+}
+function openPersonLedgerReport(unitId,personId){
+  let data;try{data=personLedgerReportData(unitId,personId)}
+  catch(e){notify(e.message);return}
+  const message='<div class="notice" style="margin:9px 0">Bu rapor <b>yalnızca '+esc(data.p.name)+'</b> hesabına ait kayıtları içerir. E-posta gönderme işlemi e-posta uygulamanızda tamamlanır.</div>';
+  const recipient=esc(data.emails[0]||'');
+  openModal('<div class="personStatementView" data-person-report="'+esc(personId)+'">'+
+    '<div class="sectionHead noPrint"><div><h2>'+esc(data.p.name)+' · A4 Cari Ekstre</h2><div class="small muted">'+esc(data.u.label)+' · '+data.rows.length+' hareket · A4 dikey</div></div>'+
+    '<button onclick="openPersonLedger(\''+unitId+'\',\''+personId+'\')">← Kişi Carisi</button></div>'+
+    message+'<div class="personStatementActions noPrint">'+
+    '<button class="primary" id="personPdfDownload" onclick="downloadPersonLedgerPdf(\''+unitId+'\',\''+personId+'\')">PDF İndir (A4)</button>'+
+    '<button onclick="printPersonLedgerPdf(\''+unitId+'\',\''+personId+'\')">Yazdır / PDF Kaydet</button></div>'+
+    '<div class="personStatementMail noPrint"><label>Alıcı e-posta adresi<input id="personLedgerEmailTo" type="email" value="'+recipient+'" placeholder="ornek@eposta.com"></label>'+
+    '<button onclick="composePersonLedgerEmail(\''+unitId+'\',\''+personId+'\')">E-posta Taslağı Aç</button></div>'+
+    '<p class="small muted noPrint">E-posta taslağında PDF otomatik eklenmez. Önce “PDF İndir” ile dosyayı oluşturup e-posta uygulamasındaki ataç simgesiyle ekleyin.</p>'+
+    '<div class="statementPreviewFrame"><div id="personStatementPdf" class="personStatementPrint">'+personLedgerReportMarkup(data)+'</div></div>'+
+    '<div id="personStatementStatus" role="status" aria-live="polite" class="small"></div></div>');
+}
+async function downloadPersonLedgerPdf(unitId,personId){
+  const button=document.getElementById('personPdfDownload');
+  const status=document.getElementById('personStatementStatus');
+  let data;try{data=personLedgerReportData(unitId,personId)}catch(e){notify(e.message);return}
+  const content=document.getElementById('personStatementPdf');
+  if(!content)return;
+  if(!window.html2pdf){
+    if(status)status.textContent='PDF kütüphanesi yüklenemedi. “Yazdır / PDF Kaydet” düğmesini kullanın.';
+    return;
+  }
+  if(button){button.disabled=true;button.textContent='PDF hazırlanıyor…';}
+  if(status)status.textContent='A4 PDF oluşturuluyor; bu işlem verileri değiştirmez.';
+  try{
+    const target=content.cloneNode(true);
+    target.style.width='190mm';target.style.margin='0';
+    target.style.position='fixed';target.style.left='-10000px';target.style.top='0';
+    target.style.zIndex='-1';
+    document.body.appendChild(target);
+    try{
+      await window.html2pdf().set({
+        margin:[11,10,11,10],filename:personStatementFileName(data),
+        image:{type:'jpeg',quality:.97},
+        html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,windowWidth:900},
+        jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+        pagebreak:{mode:['css','legacy'],avoid:['tr','.statementBrand','.statementInfo','.statementTotals','.statementNotes']}
+      }).from(target).save();
+    }finally{target.remove();}
+    if(status)status.textContent='PDF indirme isteği oluşturuldu. Dosyayı kontrol edin.';
+  }catch(e){
+    if(status)status.textContent='PDF indirilemedi: '+(e.message||e)+'. “Yazdır / PDF Kaydet” seçeneğini kullanın.';
+  }finally{if(button){button.disabled=false;button.textContent='PDF İndir (A4)';}}
+}
+function printPersonLedgerPdf(unitId,personId){
+  let data;try{data=personLedgerReportData(unitId,personId)}catch(e){notify(e.message);return}
+  const popup=window.open('','_blank');
+  if(!popup){notify('Tarayıcı yeni pencereyi engelledi. Pop-up izni verin.');return}
+  popup.document.open();
+  popup.document.write('<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>'+esc(data.p.name)+' · Kişisel Cari A4</title><style>'+
+    PERSON_STATEMENT_PRINT_CSS+'</style></head><body><main class="personStatementPrint">'+personLedgerReportMarkup(data)+'</main></body></html>');
+  popup.document.close();popup.focus();popup.print();
+}
+function composePersonLedgerEmail(unitId,personId){
+  let data;try{data=personLedgerReportData(unitId,personId)}catch(e){notify(e.message);return}
+  const addr=document.getElementById('personLedgerEmailTo')?.value.trim()||data.emails[0]||'';
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)){notify('Önce geçerli bir alıcı e-posta adresi girin.');return}
+  const subject=data.u.label+' · '+data.p.name+' · Kişisel Cari Ekstresi';
+  const body='Sayın '+data.p.name+',\n\n'+data.u.label+' için kişisel cari hesap özetiniz aşağıdadır.\n\n'+
+    'Toplam tahakkuk: '+personStatementMoney(data.debt)+'\n'+
+    'Toplam ödeme: '+personStatementMoney(data.paid)+'\n'+
+    'Net bakiye: '+personStatementMoney(data.balance)+'\n'+
+    'İşlem adedi: '+data.rows.length+'\n\n'+
+    'A4 kişisel cari hesap ekstresini PDF eki olarak bu e-postaya ekleyiniz.\n\n'+
+    'Şehit Erhan Vuruşkan Apartmanı Yönetimi';
+  const url='mailto:'+encodeURIComponent(addr)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  window.location.href=url;
+  const status=document.getElementById('personStatementStatus');
+  if(status)status.textContent='E-posta taslağı açıldı. PDF ekini ekleyip gönderimi e-posta uygulamasında tamamlayın.';
+  // Draft opening is not an actual email send, so do not write a sent notification.
+}
+function emailPersonLedger(unitId,personId){
+  // Legacy entry point retained for callers; opens the A4 report and mail composer.
+  openPersonLedgerReport(unitId,personId);
 }
 
 function managerMonthly(){
