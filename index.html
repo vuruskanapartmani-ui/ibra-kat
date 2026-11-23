@@ -2120,11 +2120,23 @@ function ledgerChargePeriodDate(charge){
   const month=state.periods.find(p=>p.id===charge.periodId)?.month;
   return /^\d{4}-\d{2}$/.test(month||'')?month+'-01':null;
 }
+function debtPersonForRange(unitId,startMonth,endMonth){
+  if(!validArchiveMonth(startMonth)||!validArchiveMonth(endMonth))return null;
+  if(startMonth===endMonth)return debtPersonForMonth(unitId,endMonth);
+  const start=startMonth+'-01',end=monthEnd(endMonth);
+  const rels=unitRelationships(unitId).filter(({r})=>['tenant','owner'].includes(r.role));
+  const overlaps=rels.filter(({r})=>(!r.startDate||r.startDate<=end)&&(!r.endDate||r.endDate>=start));
+  const tenants=overlaps.filter(({r})=>r.role==='tenant');
+  const chosen=tenants.length?tenants:overlaps.filter(({r})=>r.role==='owner');
+  if(chosen.length!==1)return null;
+  const rel=chosen[0].r;
+  return rel.startDate&&rel.startDate<=start&&(!rel.endDate||rel.endDate>=end)?chosen[0].p.id:null;
+}
 function chargeAccountPersonId(c){
   if(c.personId)return c.personId;
   if(c.assignmentReviewed||c.source==='legacy_manual'||c.source==='historical_pdf')return null;
-  const month=state.periods.find(p=>p.id===c.periodId)?.month;
-  return month?debtPersonForMonth(c.unitId,month):null;
+  const p=state.periods.find(p=>p.id===c.periodId);
+  return p?debtPersonForRange(c.unitId,p.startMonth||p.month,p.month):null;
 }
 function personLedgerEntries(unitId,personId){
   const rels=ledgerResponsibilityBounds(unitId,personId);
@@ -3193,6 +3205,8 @@ function monthFromCell(value){
     const year=words.find(word=>/^\d{4}$/.test(word)), month=months.findIndex(name=>words.includes(name));
     if(year&&month>=0)return year+'-'+String(month+1).padStart(2,'0');
   }
+  const combined=pdfArchiveMetadata(text,'');
+  if(combined.startMonth&&combined.startMonth!==combined.month)return combined.month;
   const direct=text.match(/^(\d{4})[-/.](0?[1-9]|1[0-2])$/);
   if(direct)return direct[1]+'-'+direct[2].padStart(2,'0');
   const tr=text.match(/^(0?[1-9]|1[0-2])[-/.](\d{4})$/);
