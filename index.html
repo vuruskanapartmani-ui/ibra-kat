@@ -415,7 +415,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.50';
+const APP_VERSION = 'V1.51';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -2148,13 +2148,36 @@ function personLedgerEntries(unitId,personId){
   const allowed=date=>!date||rels.some(r=>(!r.startDate||r.startDate<=date)&&(!r.endDate||r.endDate>=date));
   return {
     charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId&&(c.splitBatchId||c.assignmentReviewed||c.manualTransferAt||allowed(ledgerChargePeriodDate(c)))),
-    payments:state.payments.filter(p=>p.unitId===unitId&&p.personId===personId&&allowed(p.date||null))
+    payments:state.payments.filter(p=>p.unitId===unitId&&p.personId===personId&&(p.manualTransferAt||allowed(p.date||null)))
   };
 }
 function bankNameForPayment(p){
   const tx=state.bankTransactions.find(x=>x.id===p.bankTransactionId);
   const id=p.bankId||tx?.bankId;
-  return p.bankName||BANK_PROFILES[id]?.name||id||p.paymentMethod||'Banka belirtilmemiş';
+  return p.bankName||tx?.bankName||BANK_PROFILES[id]?.name||id||p.paymentMethod||'Banka belirtilmemiş';
+}
+function bankPaymentDetails(p){
+  const tx=state.bankTransactions.find(x=>x.id===p.bankTransactionId);
+  return {
+    bank:bankNameForPayment(p),
+    account:p.bankAccount||tx?.bankAccount||'Kaynak veride yok',
+    senderIban:p.senderIban||p.counterpartyIban||p.iban||tx?.senderIban||tx?.counterpartyIban||tx?.iban||'Kaynak veride yok',
+    description:tx?.description||p.description||'Açıklama bulunmuyor',
+    reference:p.reference||tx?.reference||'Kaynak veride yok',
+    source:tx?.sourceFile||p.sourceFile||'Kaynak veride yok',
+    txId:tx?.id||p.bankTransactionId||'—'
+  };
+}
+function openLedgerPaymentDetails(unitId,paymentId,personId=''){
+  const p=state.payments.find(x=>x.id===paymentId&&x.unitId===unitId);
+  if(!p)return notify('Ödeme kaydı bulunamadı.');
+  const d=bankPaymentDetails(p);
+  const pairs=[['İşlem tarihi',p.date||'—'],['Ödeme tutarı',trMoney(p.amount)],['Kayıtlı sorumlu',person(p.personId)?.name||'Atanmamış'],['Banka',d.bank],['Alıcı banka hesap tanımı',d.account],['Gönderen IBAN',d.senderIban],['Banka işlem açıklaması',d.description],['İşlem referans kodu',d.reference],['Kaynak dosya',d.source],['Sistem banka hareketi kimliği',d.txId]];
+  const rows=pairs.map(([key,value])=>'<div class="row" style="align-items:flex-start"><span style="min-width:125px">'+esc(key)+'</span><b style="overflow-wrap:anywhere;text-align:right">'+esc(String(value))+'</b></div>').join('');
+  openModal('<h2>'+esc(unit(unitId)?.label||unitId)+' · Ödeme Detayı</h2>'
+    +'<div class="notice">IBAN yalnızca içe aktarılan banka verisinde gerçekten varsa gösterilir. Hesap tanımı gönderen IBAN yerine geçmez.</div>'
+    +rows+'<div class="actions"><button onclick="openUnitCenter(\''+unitId+'\')">Daireye Dön</button>'
+    +'<button class="primary" onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Ödeme Sorumlusunu Değiştir</button></div>');
 }
 function chargePeriodName(c){
   const month=state.periods.find(p=>p.id===c.periodId)?.month;
@@ -2177,8 +2200,14 @@ function ledgerRowsHTML(unitId,charges,payments,personId=''){
     const names=[...new Set(g.items.map(c=>person(chargeAccountPersonId(c))?.name||'Atanmamış'))];
     return '<tr><td>Borç</td><td>'+esc(g.periodName)+'</td><td>'+esc(g.due)+'</td><td title="'+esc(names.join(', '))+'">'+esc(names.join(', '))+'</td><td class="num"><b>'+money(g.amount)+'</b></td><td class="ledgerAct"><button onclick="showDebtComponents(\''+unitId+'\',\''+id+'\',\''+due+'\',\''+personId+'\')">Kalemler</button>'+(personId?'':'<button onclick="openChargeOwnerEditor(\''+unitId+'\',\''+id+'\',\''+due+'\')">Sorumlu değiştir</button>')+'</td></tr>';
   });
-  const incomes=[...payments].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(p=>
-    '<tr><td>Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(bankNameForPayment(p))+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td><td class="ledgerAct">'+(personId?esc(p.description||'Ödeme'):'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>')+'</td></tr>');
+  const incomes=[...payments].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(p=>{
+    const d=bankPaymentDetails(p);
+    const summary='<div class="small muted" style="overflow-wrap:anywhere">Açıklama: '+esc(d.description)+'</div>'
+      +'<div class="small muted">Hesap: '+esc(d.account)+' · Ref: '+esc(d.reference)+'</div>';
+    return '<tr><td>Ödeme</td><td>'+esc(p.date||'—')+'</td><td>—</td><td>'+esc(d.bank)+'</td><td class="num ok"><b>'+money(p.amount)+'</b></td>'
+      +'<td class="ledgerAct">'+summary+'<button onclick="openLedgerPaymentDetails(\''+unitId+'\',\''+p.id+'\',\''+personId+'\')">Tüm Banka Detayları</button> '
+      +(personId?'':'<button onclick="openPaymentOwnerEditor(\''+unitId+'\',\''+p.id+'\')">Kişi değiştir</button>')+'</td></tr>';
+  });
   const joined=[...debts,...incomes];
   const totalDebt=charges.reduce((n,c)=>n+Number(c.amount||0),0);
   const totalPaid=payments.reduce((n,p)=>n+Number(p.amount||0),0);
@@ -2251,6 +2280,83 @@ async function saveChargeOwnerTransfer(unitId){
     },'Borçlar toplu sorumlu devri',r=>unit(unitId).label+' · '+name+' · '+r.count+' borç');
     closeModal();render();openUnitCenter(unitId);notify(result.changedCount+' borç yeni kişi carisine aktarıldı.');
   }catch(e){notify('Devir başarısız: '+e.message);if(btn&&btn.isConnected)btn.disabled=false}
+}
+function openBulkLedgerOwnerEditor(unitId){
+  const charges=state.charges.filter(c=>c.unitId===unitId);
+  const payments=state.payments.filter(p=>p.unitId===unitId);
+  const linkedCharge=c=>payments.some(p=>p.chargeId===c.id||p.chargeId==='late_'+c.id);
+  const linkedPayment=p=>!!p.chargeId;
+  const items=[
+    ...charges.map(c=>({kind:'charge',id:c.id,sort:c.dueDate||'',record:c,disabled:linkedCharge(c)})),
+    ...payments.map(p=>({kind:'payment',id:p.id,sort:p.date||'',record:p,disabled:linkedPayment(p)}))
+  ].sort((a,b)=>b.sort.localeCompare(a.sort));
+  if(!items.length)return notify('Dairede aktarılabilecek hareket yok.');
+  const choices=items.map(({kind,id,record:r,disabled})=>{
+    const isPayment=kind==='payment',details=isPayment?bankPaymentDetails(r):null;
+    const label=isPayment?'Ödeme':'Borç';
+    const owner=person(isPayment?r.personId:chargeAccountPersonId(r))?.name||'Atanmamış';
+    const info=isPayment?details.bank+' · '+details.description+' · Ref: '+details.reference:(r.label||r.type||'Borç');
+    return '<label class="row" style="justify-content:flex-start;align-items:flex-start;gap:8px;padding:6px 2px"><input type="checkbox" data-ledger-kind="'+kind+'" data-ledger-id="'+esc(id)+'" style="width:18px;min-height:18px;margin:3px 0;flex:none" '+(disabled?'disabled':'')+'>'
+      +'<span style="flex:1"><b>'+label+' · '+esc(r.date||chargePeriodName(r))+' · '+trMoney(r.amount)+'</b>'
+      +'<div class="small muted">'+esc(info)+'</div><div class="small muted">Mevcut: '+esc(owner)+(disabled?' · Borç/ödeme bağlantılı, kilitli':'')+'</div></span></label>';
+  }).join('');
+  openModal('<h2>'+esc(unit(unitId)?.label||unitId)+' · Toplu Cari Hareket Atama</h2>'
+    +'<div class="notice">Borç ve ödemeleri aynı listeden seçip tek işlemde kişiye aktar. Borçların tutarı ve banka işlem bilgileri değişmez; yalnız kişi bağlantısı güncellenir.</div>'
+    +'<div class="actions"><button type="button" onclick="toggleBulkLedgerSelection(true)">Uygunların Tümünü Seç</button><button type="button" onclick="toggleBulkLedgerSelection(false)">Seçimi Kaldır</button></div>'
+    +'<div style="max-height:385px;overflow:auto" id="bulkLedgerChoices">'+choices+'</div>'
+    +'<div class="notice warn" style="margin-top:8px">Borçla bağlantılı ödemeler veya ödemesi bulunan borçlar birlikte taşınmadan değiştirilmez; bu ekranda kilitlidir. Boşta kalan ödemeleri ve serbest borçları seçebilirsin.</div>'
+    +'<label>Yeni sorumlu<select id="bulkLedgerTarget">'+personOptionsForTransfer(unitId)+'</select></label>'
+    +'<div id="bulkLedgerSummary" class="notice"></div>'
+    +'<div class="actions"><button onclick="openUnitCenter(\''+unitId+'\')">Geri</button><button id="bulkLedgerSave" class="primary" onclick="saveBulkLedgerOwnerTransfer(\''+unitId+'\')">Borç ve Ödemeleri Aktar</button></div>');
+  document.querySelectorAll('[data-ledger-kind]').forEach(e=>e.addEventListener('change',refreshBulkLedgerSelection));
+  document.querySelector('#bulkLedgerTarget')?.addEventListener('change',refreshBulkLedgerSelection);
+  refreshBulkLedgerSelection();
+}
+function toggleBulkLedgerSelection(on){
+  document.querySelectorAll('[data-ledger-kind]').forEach(el=>{if(!el.disabled)el.checked=on});
+  refreshBulkLedgerSelection();
+}
+function selectedBulkLedgerRows(){
+  return [...document.querySelectorAll('[data-ledger-kind]:checked')].map(el=>({kind:el.dataset.ledgerKind,id:el.dataset.ledgerId}));
+}
+function refreshBulkLedgerSelection(){
+  const rows=selectedBulkLedgerRows(),charges=rows.filter(x=>x.kind==='charge'),payments=rows.filter(x=>x.kind==='payment');
+  const cents=items=>items.reduce((n,x)=>n+Math.round(Number(x.amount||0)*100),0);
+  const chargeRecords=state.charges.filter(c=>charges.some(x=>x.id===c.id)),paymentRecords=state.payments.filter(p=>payments.some(x=>x.id===p.id));
+  const box=document.querySelector('#bulkLedgerSummary');
+  if(box)box.textContent=chargeRecords.length+' borç ('+trMoney(cents(chargeRecords)/100)+') + '+paymentRecords.length+' ödeme ('+trMoney(cents(paymentRecords)/100)+') · Yeni sorumlu: '+(person(document.querySelector('#bulkLedgerTarget')?.value)?.name||'Atanmamış');
+  const button=document.querySelector('#bulkLedgerSave');if(button)button.disabled=!rows.length;
+}
+async function saveBulkLedgerOwnerTransfer(unitId){
+  const chosen=selectedBulkLedgerRows(),target=document.querySelector('#bulkLedgerTarget')?.value||null;
+  if(!chosen.length)return notify('Aktarılacak hareket seç.');
+  const unique=new Set(chosen.map(x=>x.kind+'|'+x.id));
+  if(unique.size!==chosen.length)return notify('Mükerrer seçim var.');
+  const resolve=()=>chosen.map(x=>x.kind==='charge'?state.charges.find(c=>c.id===x.id&&c.unitId===unitId):x.kind==='payment'?state.payments.find(p=>p.id===x.id&&p.unitId===unitId):null);
+  const blocked=(record,kind)=>kind==='charge'?state.payments.some(p=>p.chargeId===record.id||p.chargeId==='late_'+record.id):!!record.chargeId;
+  const before=resolve();
+  if(before.some((x,i)=>!x||blocked(x,chosen[i].kind)))return notify('Ödeme bağlantılı veya eksik hareket var.');
+  if(target&&!state.responsibilities.some(r=>r.unitId===unitId&&r.personId===target))return notify('Seçilen kişi bu daireye bağlı değil.');
+  const chargeN=chosen.filter(x=>x.kind==='charge').length,paymentN=chosen.length-chargeN;
+  const targetName=person(target)?.name||'Atanmamış';
+  if(!confirm(chargeN+' borç ve '+paymentN+' ödeme '+targetName+' carisine aktarılsın mı?'))return;
+  const btn=document.querySelector('#bulkLedgerSave');if(btn)btn.disabled=true;
+  try{
+    const result=await commitSpreadsheetChange(()=>{
+      const records=resolve();
+      if(records.some((x,i)=>!x||blocked(x,chosen[i].kind)))throw Error('İşlem/ödeme bağlantısı değişmiş.');
+      if(target&&!state.responsibilities.some(r=>r.unitId===unitId&&r.personId===target))throw Error('Kişi ilişkisi değişti.');
+      const changed=records.filter((r,i)=>(chosen[i].kind==='charge'?chargeAccountPersonId(r):r.personId||null)!==target).length;
+      records.forEach((r,i)=>{
+        r.personId=target;
+        if(chosen[i].kind==='charge')r.assignmentReviewed=true;
+        r.manualTransferAt=new Date().toISOString();
+      });
+      return {changed:changed>0,changedCount:changed,count:records.length,chargeN,paymentN};
+    },'Toplu borç ve ödeme kişi carisi değiştirildi',r=>unit(unitId).label+' · '+targetName+' · '+r.chargeN+' borç + '+r.paymentN+' ödeme');
+    closeModal();render();openUnitCenter(unitId);
+    notify(result.changedCount+' hareket kişi carisine kaydedildi ve doğrulandı.');
+  }catch(e){notify('Toplu cari atama başarısız: '+e.message);if(btn&&btn.isConnected)btn.disabled=false}
 }
 function openPaymentOwnerEditor(unitId,paymentId){
   const p=state.payments.find(x=>x.id===paymentId&&x.unitId===unitId);if(!p)return;
@@ -2552,7 +2658,7 @@ function openUnitCenter(unitId){
   openModal(`<div class="unitCenterHead"><button onclick="closeModal();go('units')">← Dairelere Dön</button><div><h2>${u.label} · Daire Merkezi</h2><div class="small muted">${u.type==='apartment'?u.sqm+' m²':'Aidat katsayısı '+u.duesMultiplier} · tüm bilgiler tek ekranda</div></div><span class="badge">${APP_VERSION}</span></div>
   <div class="unitCenterCards" style="margin-top:10px"><div class="card kpi"><div class="klabel">Toplam Tahakkuk</div><div class="kval">${trMoney(f.total)}</div></div><div class="card kpi"><div class="klabel">Toplam Ödeme</div><div class="kval">${trMoney(f.paid)}</div></div><div class="card kpi"><div class="klabel">Bakiye</div><div class="kval ${f.balance>0?'danger':f.balance<0?'ok':''}">${trMoney(f.balance)}</div></div><div class="card kpi"><div class="klabel">Gecikme Faizi</div><div class="kval">${trMoney(f.late)}</div></div></div>
   <details class="card personFold" style="margin-top:12px"><summary><b>Kişiler / Hane (${rels.length})</b> <span class="small muted">Aç / kapat</span></summary><div style="margin-top:10px">${personRows||'<div class="muted small">Kayıt yok.</div>'}</div></details>
-  <div class="actions" style="margin-top:10px"><button class="primary" onclick="openChargeOwnerEditor('${unitId}')">Çoklu Borç Sorumlusu Değiştir</button></div>
+  <div class="actions" style="margin-top:10px"><button class="primary" onclick="openBulkLedgerOwnerEditor('${unitId}')">Borç + Ödeme Toplu Sorumlu Ata</button><button onclick="openChargeOwnerEditor('${unitId}')">Yalnız Borçları Düzenle</button></div>
   <div class="card" style="margin-top:12px"><div class="sectionHead"><h3>Gelir – Gider / Borç Tahakkuk Hareketleri</h3><button onclick="openUnitLedger('${unitId}')">Detaylı Cari</button></div>
     <div class="small muted">Gelir: ödeme tarihi ve banka. Gider: borç dönemi, son ödeme tarihi ve toplam. Ayrıntı için Kalemler'i aç.</div>
     ${unresolved?'<div class="notice warn">Sorumlusu henüz belirlenmemiş '+unresolved+' borç kalemi var. <button onclick="openUnassignedLedger(\''+unitId+'\')">Atanmamış Borçları İncele</button></div>':''}
@@ -5463,7 +5569,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.toggleNewPeriodSecondMonth=toggleNewPeriodSecondMonth;window.saveUnitManagerExemption=saveUnitManagerExemption;window.openTwoMonthCalculation=openTwoMonthCalculation;window.calculateTwoMonths=calculateTwoMonths;window.openChargeOwnerEditor=openChargeOwnerEditor;window.saveChargeOwnerTransfer=saveChargeOwnerTransfer;window.refreshChargeOwnerScope=refreshChargeOwnerScope;window.toggleChargeOwnerSelection=toggleChargeOwnerSelection;window.openPaymentOwnerEditor=openPaymentOwnerEditor;window.savePaymentOwnerTransfer=savePaymentOwnerTransfer;window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.toggleNewPeriodSecondMonth=toggleNewPeriodSecondMonth;window.saveUnitManagerExemption=saveUnitManagerExemption;window.openTwoMonthCalculation=openTwoMonthCalculation;window.calculateTwoMonths=calculateTwoMonths;window.openChargeOwnerEditor=openChargeOwnerEditor;window.saveChargeOwnerTransfer=saveChargeOwnerTransfer;window.refreshChargeOwnerScope=refreshChargeOwnerScope;window.toggleChargeOwnerSelection=toggleChargeOwnerSelection;window.openBulkLedgerOwnerEditor=openBulkLedgerOwnerEditor;window.toggleBulkLedgerSelection=toggleBulkLedgerSelection;window.saveBulkLedgerOwnerTransfer=saveBulkLedgerOwnerTransfer;window.openLedgerPaymentDetails=openLedgerPaymentDetails;window.openPaymentOwnerEditor=openPaymentOwnerEditor;window.savePaymentOwnerTransfer=savePaymentOwnerTransfer;window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
