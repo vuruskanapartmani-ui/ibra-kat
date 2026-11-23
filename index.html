@@ -3816,6 +3816,8 @@ function openHistoricalArchive(){
     const kind=doc?.mode||(file&&/tuketim|sayac/i.test(sheetKey(file.name))?'meter':'debt');
     const namedMonth=file?.name.match(/(?:^|[^0-9])(20\d{2})[-_. ]?(0[1-9]|1[0-2])(?=\D|$)/);
     const month=doc?.month||(namedMonth?namedMonth[1]+'-'+namedMonth[2]:'');
+    const initialStart=doc?.startMonth&&doc.startMonth!==month?doc.startMonth:'';
+    const modeValue=initialStart?'combined':'single';
     const fields=file?
       '<label>Kayıt türü<select name="mode"><option value="debt">Borç kalemleri</option><option value="meter"'+(kind==='meter'?' selected':'')+'>Sayaç ve tüketim</option></select></label>'+
       '<label>Sayaç birimi<select name="scale"><option value="1">Ham endeks</option><option value="1000">Metreküp</option></select></label>'+
@@ -3824,8 +3826,10 @@ function openHistoricalArchive(){
       '<label>Borç kalemi<select name="type">'+Object.values(HISTORICAL_DEBT_TYPES).map(label=>'<option>'+esc(label)+'</option>').join('')+'</select></label>'+
       '<label>Tutar (TL)<input name="amount" required inputmode="decimal" type="number" min="0.01" step="0.01"></label>';
     panel.innerHTML='<div class="sectionHead"><h3>'+esc(file?.name||'Elle borç kalemi')+'</h3><button type="button" data-drop>Çıkar</button></div>'+
-      '<form class="stack"><div class="grid2">'+fields+'<label>Dönem<input type="month" name="month" min="2024-01" max="'+todayISO().slice(0,7)+'" value="'+month+'" required></label>'+
-      '<label>Son ödeme tarihi<input type="date" name="due" value="'+esc(doc?.due||'')+'"></label></div><button type="submit">'+(file?'Dosyayı hazırla':'Kalemi hazırla')+'</button></form>'+
+      '<form class="stack"><div class="grid2">'+fields+'<label>Dönem türü<select name="periodMode"><option value="single"'+(modeValue==='single'?' selected':'')+'>Tek ay</option><option value="combined"'+(modeValue==='combined'?' selected':'')+'>İki ay tek tahakkuk (ör. Eylül–Ekim)</option></select></label>'+
+      '<label>İlk ay (ortak dönem)<input type="month" name="startMonth" min="2024-01" max="'+todayISO().slice(0,7)+'" value="'+esc(initialStart)+'" '+(modeValue==='combined'?'required':'')+'></label>'+
+      '<label>Son ay (ortak dönemin kayıt anahtarı)<input type="month" name="month" min="2024-01" max="'+todayISO().slice(0,7)+'" value="'+month+'" required></label>'+
+      '<label>Son ödeme tarihi<input type="date" name="due" value="'+esc(doc?.due||'')+'"></label></div><p class="small muted">Örnek: İlk ay 2025-09, son ay 2025-10. PDF toplamı Eylül–Ekim için <b>tek borç</b> olarak kaydedilir; iki kere hesaplanmaz.</p><button type="submit">'+(file?'Dosyayı hazırla':'Kalemi hazırla')+'</button></form>'+
       '<div data-file-status aria-live="polite"></div>';
     queue.append(panel);records.push(item);clearPlan();
     panel.querySelector('[data-drop]').addEventListener('click',()=>{
@@ -3834,16 +3838,22 @@ function openHistoricalArchive(){
     const form=panel.querySelector('form'), status=panel.querySelector('[data-file-status]');
     item.form=form;
     const reset=()=>{item.context=null;item.sheets=null;clearPlan();};
+    const periodMode=form.elements.periodMode,startControl=form.elements.startMonth;
+    const setPeriodMode=()=>{const combined=periodMode.value==='combined';startControl.required=combined;startControl.disabled=!combined;startControl.closest('label').style.display=combined?'':'none';};
+    periodMode.addEventListener('change',setPeriodMode);setPeriodMode();
     form.addEventListener('input',()=>{reset();status.textContent='Değerler değişti. Yeniden hazırlayın.';});
     const prepare=async()=>{
       if(!form.reportValidity())return;
       reset();
       const controls=[...form.elements];
       const data=Object.fromEntries(new FormData(form));
-      const context={mode:data.mode||'debt',month:data.month,due:data.due,scale:Number(data.scale||1),
+      const startMonth=data.periodMode==='combined'?archiveRangeStart(data.startMonth,data.month):data.month;
+      const conflict=archiveExistingPeriodConflict(startMonth,data.month);
+      if(conflict){status.textContent=conflict;return}
+      const context={mode:data.mode||'debt',month:data.month,startMonth,due:data.due,scale:Number(data.scale||1),
         filename:file?.name||'Elle girilen geçmiş borç',omitGas:data.gas==='omit'};
       const ready=(settings,sheets)=>{item.context=settings;item.sheets=sheets;clearPlan();};
-      const mark=()=>{status.textContent='Hazır · '+isoMonthLabel(context.month);};
+      const mark=()=>{status.textContent='Hazır · '+archivePeriodLabel(context.startMonth,context.month);};
       controls.forEach(el=>el.disabled=true);
       status.textContent='Okunuyor…';
       try{
