@@ -3446,8 +3446,10 @@ async function pdfArchiveTables(file,mode,progress){
         if(auto){
           const info=pdfArchiveMetadata(raw,raw);
           if(!metadata)metadata=info;
-          else if(!info.month||metadata.month!==info.month||metadata.startMonth!==info.startMonth||metadata.due!==info.due)
+          else if(!info.month||metadata.month!==info.month||metadata.due!==info.due||(
+            metadata.startMonth!==info.startMonth&&metadata.startMonth!==metadata.month&&info.startMonth!==info.month))
             throw new Error('Dosyanın sayfalarında dönem veya vade farklı.');
+          if(info.startMonth&&metadata.startMonth===metadata.month&&info.startMonth!==info.month)metadata.startMonth=info.startMonth;
         }
         result.push(...nativeRows);
         progress('PDF metin katmanından '+nativeRows.length+' daire doğru rakamlarla okundu.');
@@ -3458,8 +3460,10 @@ async function pdfArchiveTables(file,mode,progress){
       if(auto){
         const info=await readPdfArchiveMetadata(worker,pageImage,xs,ys);
         if(!metadata)metadata=info;
-        else if(!info.month||metadata.month!==info.month||metadata.due!==info.due)
-          throw new Error('Dosyanın sayfalarında dönem veya vade farklı. Aylara göre ayrı PDF yükleyin.');
+        else if(!info.month||metadata.month!==info.month||metadata.due!==info.due||(
+          metadata.startMonth!==info.startMonth&&metadata.startMonth!==metadata.month&&info.startMonth!==info.month))
+          throw new Error('Dosyanın sayfalarında dönem veya vade farklı.');
+        if(info.startMonth&&metadata.startMonth===metadata.month&&info.startMonth!==info.month)metadata.startMonth=info.startMonth;
       }
       await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:'0123456789.,'});
       const rows=ys.slice(1,-1).map((y,i)=>[ys[i+1],ys[i+2]]).filter(([a,b])=>b-a>=18);
@@ -3945,6 +3949,16 @@ function openHistoricalArchive(){
 function collectArchiveBatch(records){
   const debtEntries=[],meterGroups=new Map(),errors=[];
   let otherPeriods=0;
+  const periodRangeByMonth=new Map();
+  for(const {context} of records){
+    const start=archiveRangeStart(context.startMonth,context.month);
+    const key=start+'|'+context.month;
+    for(const month of start===context.month?[start]:[start,context.month]){
+      const existing=periodRangeByMonth.get(month);
+      if(existing&&existing!==key)errors.push((context.filename||'Dosya')+' · '+month+' aynı aktarımda farklı dönem aralıklarına ait. Aynı ay için ayrı ve ortak PDF birlikte yüklenemez.');
+      periodRangeByMonth.set(month,key);
+    }
+  }
   for(const {context,sheets} of records){
     if(context.mode==='debt'){
       const part=parseHistoricalDebtSheet(sheets,context.month,context.due);
