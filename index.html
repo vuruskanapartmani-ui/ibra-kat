@@ -465,6 +465,15 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 
 .personStatementPrint.pdfExportMode{width:190mm!important;max-width:190mm!important;min-height:0!important;padding:0!important;box-shadow:none!important;margin:0!important}
 .personStatementPrint.pdfExportMode .statementTable{min-width:0!important;width:100%!important}
+
+/* V1.57 year + month report filters, chronological reports and printable A4 headings */
+.monthlyUnitFilterGrid{display:grid;grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) auto;gap:9px;align-items:end}
+.monthlyUnitFilterGrid button{min-height:44px}
+.monthlyUnitFiltered .unitMonthlyReport{break-inside:avoid-page;page-break-inside:avoid}
+.monthlyUnitFiltered .unitMonthlyReport h3{font-size:17px;letter-spacing:0}
+@media(max-width:650px){.monthlyUnitFilterGrid{grid-template-columns:1fr 1fr}.monthlyUnitFilterGrid button{grid-column:1/-1}}
+@media print{.monthlyUnitFiltered .unitMonthlyReport{border:0;box-shadow:none;break-before:page;page-break-before:always}.monthlyUnitFiltered .unitMonthlyReport:first-of-type{break-before:auto;page-break-before:auto}.monthlyUnitFiltered .unitMonthlyReport h3{font-size:12pt}.monthlyUnitFiltered .unitMonthlyReport .tableWrap{overflow:visible}}
+
 </style>
   <title>IBRA KAT</title>
 <style>
@@ -517,7 +526,7 @@ window.IBRA_KAT_CONFIG = { mode: "supabase", supabaseUrl: "https://wbpyhiyrnnkah
    Demo mode persists in localStorage. New-resident form uses Supabase.
 */
 
-const APP_VERSION = 'V1.56';
+const APP_VERSION = 'V1.57';
 const APP_VERSION_DATE = '23.11.2026';
 const APT_SQM = [147,186,94,59,57,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147,169,141,169,147];
 const TOTAL_APT_SQM = APT_SQM.reduce((a,b)=>a+b,0); // 4925
@@ -1550,21 +1559,25 @@ async function adminActivityLogs(){
 }
 const CARETAKER_METER_FORM='https://forms.gle/NV9TMjXPzEx6nWKz9';
 const meterFormLink=()=>'<a href="'+CARETAKER_METER_FORM+'" target="_blank" rel="noopener noreferrer">Google Form’u aç</a>';
-let monthlyUnitReportPeriod=null;
+let monthlyUnitReportPeriod=null; // retained for previous internal calls
 let monthlyUnitReportMode='debt';
-function unitMonthlyReport(){
-  const periods=[...state.periods].sort((a,b)=>b.month.localeCompare(a.month));
-  const p=periods.find(p=>p.id===monthlyUnitReportPeriod)||period()||periods[0];
-  const title='Aylık Borç ve Tüketim';
-  if(!p)return shell('<h2>'+title+'</h2><p>Henüz dönem kaydı yok.</p>',adminMainNav());
-  const debtMode=monthlyUnitReportMode==='debt';
-  const units=meterUnits().sort((a,b)=>a.code.localeCompare(b.code,'tr',{numeric:true}));
+let monthlyUnitYear=null;
+let monthlyUnitMonth=null;
+function setMonthlyUnitFilter(kind,value){
+  if(kind==='year')monthlyUnitYear=value;
+  if(kind==='month')monthlyUnitMonth=value;
+  render();
+}
+function resetMonthlyUnitFilter(){
+  monthlyUnitYear='all';monthlyUnitMonth='all';render();
+}
+function unitMonthlyReportSection(p,debtMode,units){
   const headings=debtMode?
     ['Soğuk su','Sıcak su','Su (birleşik)','Doğalgaz','Elektrik','Tüketim toplamı','Sabit aidat','Diğer / gecikme','Aylık toplam borç']:
     ['Doğalgaz','Sıcak su','Soğuk su'];
   const categories=['cold_water','hot_water','water','gas','electric','dues'];
   const totals=Array(headings.length).fill(0);
-  const chargesByUnit=new Map(), metersByUnit=new Map();
+  const chargesByUnit=new Map(),metersByUnit=new Map();
   for(const c of state.charges){
     if(c.periodId!==p.id)continue;
     if(!chargesByUnit.has(c.unitId))chargesByUnit.set(c.unitId,[]);
@@ -1605,26 +1618,64 @@ function unitMonthlyReport(){
     .filter(c=>c.type!=='late_fee'&&c.dueDate).map(c=>c.dueDate)))].sort();
   const due=(debtDates.length?debtDates:p.dueDate?[p.dueDate]:[])
     .map(date=>esc(date.split('-').reverse().join('.'))).join(', ')||'—';
-  return shell(`<div class="monthlyPaymentReport">
-    <h2 class="noPrint">${title}</h2>
-    <div class="card stack noPrint" style="margin-top:10px">
-      <label>Dönem<select id="monthlyUnitPeriod" onchange="monthlyUnitReportPeriod=this.value;render()">
-        ${periods.map(item=>`<option value="${esc(item.id)}" ${item.id===p.id?'selected':''}>${esc(isoMonthLabel(item.month))}</option>`).join('')}
-      </select></label>
-      <div class="actions">
-        <button aria-pressed="${debtMode}" class="${debtMode?'primary':''}" onclick="monthlyUnitReportMode='debt';render()">Borçlar</button>
-        <button aria-pressed="${!debtMode}" class="${!debtMode?'primary':''}" onclick="monthlyUnitReportMode='meter';render()">Tüketimler</button>
-        <button onclick="printAll()">Yazdır / PDF</button>
-      </div>
-    </div>
-    <article class="card unitMonthlyReport" style="margin-top:10px">
-      <h3>${esc(isoMonthLabel(p.month))} · ${debtMode?'Aylık Daire Borçları':'Aylık Daire Tüketimleri'}</h3>
-      <p class="small">${debtMode?'Son ödeme tarihi: '+due+' · Borçlar tahakkuk tutarlarıdır.':'Endeksler ham sayaç değeri, tüketimler metreküp olarak gösterilir.'} “—” bu kalem için kayıt olmadığını gösterir.</p>
-      <div class="tableWrap"><table aria-label="${debtMode?'Aylık daire borçları':'Aylık daire tüketimleri'}">
-        <thead><tr><th scope="col" rowspan="${debtMode?1:2}">Daire</th>${cols}</tr>${sub}</thead>
-        <tbody>${rows}</tbody>${footer}
-      </table></div>
-    </article></div>`,adminMainNav());
+  const label=periodDisplayName(p);
+  return '<article class="card unitMonthlyReport" style="margin-top:10px">'+
+    '<h3>'+esc(label)+' · '+(debtMode?'Aylık Daire Borçları':'Aylık Daire Tüketimleri')+'</h3>'+
+    '<p class="small">'+(debtMode?'Son ödeme tarihi: '+due+' · Borçlar tahakkuk tutarlarıdır.':'Endeksler ham sayaç değeri, tüketimler metreküp olarak gösterilir.')+
+    ' “—” bu kalem için kayıt olmadığını gösterir.</p>'+
+    '<div class="tableWrap"><table aria-label="'+esc(label)+' '+(debtMode?'aylık daire borçları':'aylık daire tüketimleri')+'">'+
+    '<thead><tr><th scope="col" rowspan="'+(debtMode?1:2)+'">Daire</th>'+cols+'</tr>'+sub+'</thead>'+
+    '<tbody>'+rows+'</tbody>'+footer+'</table></div></article>';
+}
+function unitMonthlyReport(){
+  const periods=[...state.periods].sort((a,b)=>String(b.month).localeCompare(String(a.month)));
+  const title='Aylık Borç ve Tüketim';
+  if(!periods.length)return shell('<h2>'+title+'</h2><p>Henüz dönem kaydı yok.</p>',adminMainNav());
+  const current=periods.find(p=>p.id===monthlyUnitReportPeriod)||period()||periods[0];
+  if(monthlyUnitYear===null)monthlyUnitYear=String(current.month||'').slice(0,4);
+  if(monthlyUnitMonth===null)monthlyUnitMonth=String(current.month||'').slice(5,7);
+  const years=[...new Set(periods.flatMap(p=>[String(p.month||'').slice(0,4),String(p.startMonth||'').slice(0,4)]).filter(y=>/^\d{4}$/.test(y)))].sort((a,b)=>b.localeCompare(a));
+  if(monthlyUnitYear!=='all'&&!years.includes(monthlyUnitYear))monthlyUnitYear='all';
+  const matching=periods.filter(p=>{
+    const from=p.startMonth||p.month;
+    const through=p.month;
+    const months=[];
+    if(/^\d{4}-\d{2}$/.test(from)&&/^\d{4}-\d{2}$/.test(through)){
+      let m=from;
+      for(let i=0;i<12&&m<=through;i++){
+        months.push(m);
+        const [year,month]=m.split('-').map(Number);
+        m=(month===12?year+1:year)+'-'+String(month===12?1:month+1).padStart(2,'0');
+      }
+    }else months.push(through);
+    return months.some(m=>(monthlyUnitYear==='all'||m.slice(0,4)===monthlyUnitYear)
+      &&(monthlyUnitMonth==='all'||m.slice(5,7)===monthlyUnitMonth));
+  });
+  const yearOptions=['<option value="all" '+(monthlyUnitYear==='all'?'selected':'')+'>Tüm yıllar</option>',
+    ...years.map(y=>'<option value="'+y+'" '+(monthlyUnitYear===y?'selected':'')+'>'+y+'</option>')].join('');
+  const monthOptions=['<option value="all" '+(monthlyUnitMonth==='all'?'selected':'')+'>Tüm aylar</option>',
+    ...MONTH_LABELS_TR.map((label,i)=>{const val=String(i+1).padStart(2,'0');
+      return '<option value="'+val+'" '+(monthlyUnitMonth===val?'selected':'')+'>'+label+'</option>';
+    })].join('');
+  const debtMode=monthlyUnitReportMode==='debt';
+  const units=meterUnits().sort((a,b)=>a.code.localeCompare(b.code,'tr',{numeric:true}));
+  const reports=matching.map(p=>unitMonthlyReportSection(p,debtMode,units)).join('');
+  return shell('<div class="monthlyPaymentReport monthlyUnitFiltered">'+
+    '<h2 class="noPrint">'+title+'</h2>'+
+    '<div class="card stack noPrint monthlyUnitFilterCard" style="margin-top:10px">'+
+      '<div class="monthlyUnitFilterGrid">'+
+      '<label>Yıl<select id="monthlyUnitYear" onchange="setMonthlyUnitFilter(\'year\',this.value)">'+yearOptions+'</select></label>'+
+      '<label>Ay<select id="monthlyUnitMonth" onchange="setMonthlyUnitFilter(\'month\',this.value)">'+monthOptions+'</select></label>'+
+      '<button type="button" onclick="resetMonthlyUnitFilter()">Tüm dönemleri göster</button></div>'+
+      '<div class="actions">'+
+        '<button aria-pressed="'+debtMode+'" class="'+(debtMode?'primary':'')+'" onclick="monthlyUnitReportMode=\'debt\';render()">Borçlar</button>'+
+        '<button aria-pressed="'+(!debtMode)+'" class="'+(!debtMode?'primary':'')+'" onclick="monthlyUnitReportMode=\'meter\';render()">Tüketimler</button>'+
+        '<button onclick="printAll()">Yazdır / PDF</button></div>'+
+      '<div class="small muted">'+matching.length+' dönem listeleniyor · '+(monthlyUnitYear==='all'?'Tüm yıllar':monthlyUnitYear)+
+      ' / '+(monthlyUnitMonth==='all'?'Tüm aylar':MONTH_LABELS_TR[Number(monthlyUnitMonth)-1])+
+      ' · En yeni dönem üstte</div></div>'+
+    (reports||'<div class="notice warn" style="margin-top:12px">Bu yıl ve ay için kayıtlı dönem bulunamadı. Filtreyi değiştir.</div>')+
+    '</div>',adminMainNav());
 }
 
 function adminUnitHub(){
