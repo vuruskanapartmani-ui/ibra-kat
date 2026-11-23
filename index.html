@@ -1940,14 +1940,14 @@ function openNewPeriod(){
     <label>Dönem<input id="npMonth" type="month" required></label>
     <label>Son ödeme tarihi<input id="npDue" type="date" required></label>
     <label>Sabit aidat<input id="npDues" type="number" value="${state.settings.defaultDues}" required></label>
-    <label>Yönetici aidat muafiyeti (isteğe bağlı)<select id="npManagerUnit"><option value="">Bu dönem muafiyet yok</option>${state.units.filter(u=>u.type==='apartment'&&u.active).map(u=>`<option value="${u.id}">${u.label}</option>`).join('')}</select><span class="small muted">Seçilen dairenin yalnız sabit aidatı 0 TL olur; tüketim ve ek borçlar devam eder.</span></label>
+    <label>Yönetici aidat muafiyeti (isteğe bağlı)<select id="npManagerUnit"><option value="">Bu dönem muafiyet yok</option>${state.units.filter(u=>u.type==='apartment'&&u.active).map(u=>`<option value="${u.id}" ${state.settings.defaultManagerDuesExemptUnitId===u.id?'selected':''}>${u.label}</option>`).join('')}</select><span class="small muted">Seçilen dairenin yalnız sabit aidatı 0 TL olur; tüketim ve ek borçlar devam eder.</span></label>
     <label>Kazan sıcaklığı<input id="npTemp" type="number" value="${state.settings.defaultBoilerTemp}" required></label>
     <label>Merkezi sistem<select id="npBoiler"><option value="0">Kombi Kapalı</option><option value="1">Kombi Aktif</option></select></label>
     <button class="primary">Dönemi Aç</button></form>`);
 }
 function createPeriod(){
   const month=$('#npMonth').value;if(!month)return; if(state.periods.some(p=>p.month===month)){notify('Bu dönem zaten var.');return}
-  const managerUnit=$('#npManagerUnit')?.value||'';
+  const managerUnit=$('#npManagerUnit')?.value||state.settings.defaultManagerDuesExemptUnitId||'';
   const p={id:uid('p'),month,status:'draft',boilerActive:$('#npBoiler').value==='1',dues:Number($('#npDues').value),dueDate:$('#npDue').value,boilerTemp:Number($('#npTemp').value),gasConsumptionPct:state.settings.gasConsumptionPct,gasSqmPct:state.settings.gasSqmPct,waterLossDivisor:state.settings.waterLossDivisor,lateFeeEnabled:state.settings.lateFeeEnabled,lateFeeRate:state.settings.lateFeeRate,lateFeeMode:state.settings.lateFeeMode,managerDuesExemptUnitId:managerUnit||null};
   state.periods.unshift(p);activePeriodId=p.id;saveState();logAudit('Dönem açıldı',month);closeModal();go('periodDetail');
 }
@@ -2373,6 +2373,29 @@ async function saveDebtSplit(){
   }catch(e){notify('Paylaştırma kaydedilemedi: '+e.message)}finally{if(button&&button.isConnected)button.disabled=false}
 }
 
+
+async function saveUnitManagerExemption(unitId){
+  const u=unit(unitId),on=!!$('#unitManagerExempt')?.checked;
+  if(!u||u.type!=='apartment')return;
+  if(!confirm(on?u.label+' yöneticinin dairesi olarak kaydedilsin ve bundan sonraki dönemlerde normal aidattan muaf olsun mu?':'Bu dairenin gelecekteki aidat muafiyeti kaldırılsın mı?'))return;
+  try{
+    const result=await commitSpreadsheetChange(()=>{
+      const current=unit(unitId);if(!current)throw Error('Daire bulunamadı.');
+      state.settings.defaultManagerDuesExemptUnitId=on?unitId:null;
+      state.units.forEach(x=>{x.managerDuesExemptDefault=!!on&&x.id===unitId});
+      let draftUpdated=0;
+      state.periods.filter(p=>p.status!=='locked'&&!p.legacyOnly).forEach(p=>{
+        // Preserve any already calculated financial entries. Recalculation is explicitly required.
+        const existing=state.charges.some(c=>c.periodId===p.id&&c.type==='dues');
+        if(!existing){p.managerDuesExemptUnitId=on?unitId:null;draftUpdated++}
+      });
+      return {changed:true,draftUpdated};
+    },'Yönetici dairesi varsayılan aidat muafiyeti',r=>u.label+' · '+(on?'Muaf':'Muafiyet kapalı')+' · '+r.draftUpdated+' hesaplanmamış taslak');
+    closeModal();render();openUnitCenter(unitId);
+    notify('Gelecek dönem muafiyet tercihi doğrulandı. '+result.draftUpdated+' henüz hesaplanmamış taslağa uygulandı. Hesaplanmış/kapalı dönemler değiştirilmedi.');
+  }catch(e){notify('Yönetici muafiyeti kaydedilemedi: '+e.message)}
+}
+
 function openUnitCenter(unitId){
   syncLateFees(true);
   const u=unit(unitId),rels=unitRelationships(unitId),active=rels.filter(x=>x.r.active),f=unitFinancialSummary(unitId),p=period(),m=unitPeriodConsumption(unitId);
@@ -2395,6 +2418,7 @@ function openUnitCenter(unitId){
     ${ledgerTable}</div>
   <div class="unitLateFeeBox"><div><b>Gecikme faizi yönetimi</b><div class="small muted">Bu daire için biriken faizi sıfırla veya seçili dönemi faizden muaf tut.</div></div><div class="actions"><button class="dangerBtn" onclick="openUnitLateFeeControl('${unitId}')">Faizi Yönet</button></div></div>
   <div class="actions" style="margin-top:10px"><button class="primary" onclick="closeModal();openPaymentForUnit('${unitId}')">+ Manuel Ödeme</button><button onclick="openLegacyDebtEntry('${unitId}')">+ Geçmiş Borç</button><button onclick="openHouseholdPersonForm('${unitId}')">+ Kişi Ekle</button><button class="primary" onclick="openDebtSplit('${unitId}')">Aylık Borcu İki Kişiye Böl</button><button onclick="openUnitNotificationEmails('${unitId}')">Daire E-postaları</button><button onclick="closeModal();openUnitLedger('${unitId}')">Detaylı Cari</button></div>
+  ${u.type==='apartment'?'<details class="card" style="margin-top:8px"><summary><b>Daire Ayarları · Yönetici Aidatı</b></summary><div style="margin-top:8px"><label class="switch"><input id="unitManagerExempt" type="checkbox" '+(state.settings.defaultManagerDuesExemptUnitId===unitId?'checked':'')+'> Bu daire apartman yöneticisine ait; gelecek aylarda normal aidat alma</label><p class="small muted">Su, gaz ve elektrik muaf değildir. Geçmişte kapanmış veya hesaplanmış dönemler otomatik değişmez.</p><button class="primary" onclick="saveUnitManagerExemption(\'${unitId}\')">Aidat Muafiyetini Kaydet</button></div></details>':''}
   <div class="notice" style="margin-top:10px"><b>Daire bildirim e-postaları:</b> ${unitMails.length?unitMails.map(esc).join(', '):'Henüz tanımlı değil'} · Kişilerin kendi e-postaları ayrıca kullanılır.</div>
   <div class="unitPanel"><h3>${isoMonthLabel(p.month)} Tüketimleri</h3><div class="grid3"><div class="card"><div class="small muted">Soğuk Su</div><b>${m.cold==null?'—':trNum(m.cold,3)+' m³'}</b></div><div class="card"><div class="small muted">Sıcak Su</div><b>${m.hot==null?'—':trNum(m.hot,3)+' m³'}</b></div><div class="card"><div class="small muted">Gaz</div><b>${p.boilerActive?(m.gas==null?'—':trNum(m.gas,3)+' m³'):'Kombi kapalı'}</b></div></div><div class="actions" style="margin-top:8px"><button onclick="openUnitHistory('${unitId}')">Tüm Tüketim Geçmişi</button><button onclick="closeModal();go('monthly')">Aylık Tablo</button></div></div>
   
@@ -3781,8 +3805,8 @@ function collectArchiveBatch(records){
   for(const {context,sheets} of records){
     if(context.mode==='debt'){
       const part=parseHistoricalDebtSheet(sheets,context.month,context.due);
-      const chosen=part.entries.filter(e=>e.month===context.month);
-      otherPeriods+=part.entries.length-chosen.length;
+      const chosen=part.entries;
+      otherPeriods+=chosen.filter(e=>e.month!==context.month).length;
       chosen.forEach(e=>debtEntries.push({...e,note:e.note||context.filename}));
       errors.push(...part.errors.map(e=>context.filename+' · '+e));
       continue;
@@ -3824,7 +3848,7 @@ function renderArchiveBatchPlan(output,records){
     '<p>'+plan.debt.length+' aktarılacak borç kalemi · '+plan.readings.length+
     ' yeni sayaç · '+plan.repeated+' değişmeyecek mevcut kayıt · '+trMoney2(amounts/100)+'</p>'+
     (plan.corrected?'<div class="notice warn"><b>'+plan.corrected+' eski hatalı kayıt düzeltilecek.</b> Yeni bir borç eklemek yerine önceki yanlış tutar değiştirilecek. Ödemeyle bağlantılı veya PDF dışından oluşturulan kayıtlar otomatik düzeltilemez.</div>':'')+
-    (plan.otherPeriods?'<p class="small">'+plan.otherPeriods+' borç kalemi başka döneme ait.</p>':'')+
+    (plan.otherPeriods?'<p class="small ok">'+plan.otherPeriods+' borç kalemi dosyanın varsayılan ayı dışında farklı aylara ait; kendi dönemlerine ayrılarak aktarılacak.</p>':'')+
     plan.errors.map(e=>'<p class="danger">'+esc(e)+'</p>').join('')+
     (plan.errors.length?'<p>'+esc(archivePdfHelp(plan.errors[0]))+'</p>':'')+
     (plan.debt.length?'<p>Her borcu açarak sorumluyu ve tutarı belirleyin. Bir ayın tamamında tek tarihli sorumlu varsa önerilir. Geçiş aylarında dağılımı kendiniz yapabilirsiniz.</p>':'')+
@@ -5213,7 +5237,7 @@ function render(){
   showManagerOpeningAlerts();
 }
 
-window.openTwoMonthCalculation=openTwoMonthCalculation;window.calculateTwoMonths=calculateTwoMonths;window.openChargeOwnerEditor=openChargeOwnerEditor;window.saveChargeOwnerTransfer=saveChargeOwnerTransfer;window.refreshChargeOwnerScope=refreshChargeOwnerScope;window.openPaymentOwnerEditor=openPaymentOwnerEditor;window.savePaymentOwnerTransfer=savePaymentOwnerTransfer;window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
+window.saveUnitManagerExemption=saveUnitManagerExemption;window.openTwoMonthCalculation=openTwoMonthCalculation;window.calculateTwoMonths=calculateTwoMonths;window.openChargeOwnerEditor=openChargeOwnerEditor;window.saveChargeOwnerTransfer=saveChargeOwnerTransfer;window.refreshChargeOwnerScope=refreshChargeOwnerScope;window.openPaymentOwnerEditor=openPaymentOwnerEditor;window.savePaymentOwnerTransfer=savePaymentOwnerTransfer;window.openBulkUnitAssignment=openBulkUnitAssignment;window.bulkAssignmentPersonOptions=bulkAssignmentPersonOptions;window.confirmBulkUnitAssignment=confirmBulkUnitAssignment;window.selectAllFilteredBankRows=selectAllFilteredBankRows;window.openDebtSplit=openDebtSplit;window.splitModeUpdated=splitModeUpdated;window.updateSplitPreview=updateSplitPreview;window.saveDebtSplit=saveDebtSplit;window.goBack=goBack;window.openUnassignedLedger=openUnassignedLedger;window.openAssignDebtOwner=openAssignDebtOwner;window.assignDebtOwner=assignDebtOwner;window.removePersonFromUnit=removePersonFromUnit;window.personStatusFieldChanged=personStatusFieldChanged;window.setPeriodListFilter=setPeriodListFilter;window.retryPendingImport=retryPendingImport;window.exportPendingRemoteJson=exportPendingRemoteJson;window.inspectLocalRecovery=inspectLocalRecovery;window.exportRawLocalJson=exportRawLocalJson;window.exportLastCloudJson=exportLastCloudJson;window.syncNow=syncNow;window.exportCurrentJson=exportCurrentJson;window.exportRecoveryJson=exportRecoveryJson;window.openRecoverySync=openRecoverySync;window.uploadRecoveredLocal=uploadRecoveredLocal;
 window.openLeaveRequestForm=openLeaveRequestForm;window.updateLeaveDayPreview=updateLeaveDayPreview;window.submitLeaveRequest=submitLeaveRequest;window.reviewLeave=reviewLeave;window.saveLeaveReview=saveLeaveReview;window.openCaretakerNewPeriod=openCaretakerNewPeriod;window.createCaretakerPeriod=createCaretakerPeriod;window.openChangePassword=openChangePassword;window.saveMyPassword=saveMyPassword;window.openCreateResidentAccount=openCreateResidentAccount;window.createResidentAccount=createResidentAccount;window.adminResetPassword=adminResetPassword;window.saveAdminResetPassword=saveAdminResetPassword;window.adminSetAccountActive=adminSetAccountActive;window.openUnitNotificationEmails=openUnitNotificationEmails;window.saveUnitNotificationEmails=saveUnitNotificationEmails;window.openPersonProfileEditor=openPersonProfileEditor;window.savePersonProfile=savePersonProfile;window.openHouseholdPersonForm=openHouseholdPersonForm;window.saveHouseholdPerson=saveHouseholdPerson;window.savePeriodDueDate=savePeriodDueDate;window.setLibraryTab=setLibraryTab;window.openLibraryDecisionForm=openLibraryDecisionForm;window.saveLibraryDecision=saveLibraryDecision;window.deleteLibraryDecision=deleteLibraryDecision;window.openLibraryContactForm=openLibraryContactForm;window.saveLibraryContact=saveLibraryContact;window.deleteLibraryContact=deleteLibraryContact;window.openLibraryDocumentForm=openLibraryDocumentForm;window.saveLibraryDocument=saveLibraryDocument;window.openLibraryFile=openLibraryFile;window.deleteLibraryDocument=deleteLibraryDocument;window.saveManagerDuesExemption=saveManagerDuesExemption;window.applyManagerDuesExemption=applyManagerDuesExemption;window.openUnitCenter=openUnitCenter;window.unitCenterFilter=unitCenterFilter;window.managerSetup=managerSetup;window.openUnitSetup=openUnitSetup;window.openLegacyDebtEntry=openLegacyDebtEntry;window.saveLegacyDebt=saveLegacyDebt;window.refreshPaymentPeople=refreshPaymentPeople;window.refreshPaymentTarget=refreshPaymentTarget;window.openUnitLateFeeControl=openUnitLateFeeControl;window.resetUnitLateFee=resetUnitLateFee;window.waiveUnitLateFee=waiveUnitLateFee;window.clearUnitLateFeeOverride=clearUnitLateFeeOverride;window.openLateFeeSettings=openLateFeeSettings;window.saveLateFeeSettings=saveLateFeeSettings;window.syncLateFees=syncLateFees;window.filterResidents=filterResidents;window.toggleLoginAccess=toggleLoginAccess;window.openOverdueReminderManager=openOverdueReminderManager;window.emailPersonLedger=emailPersonLedger;window.submitResidentApplication=submitResidentApplication;window.openBankAllocation=openBankAllocation;window.addAllocationRow=addAllocationRow;window.refreshAllocationCharges=refreshAllocationCharges;window.updateAllocationTotal=updateAllocationTotal;window.saveBankAllocation=saveBankAllocation;window.autoAllocateBankTransaction=autoAllocateBankTransaction;window.go=go;window.logout=logout;window.doLogin=doLogin;window.openNewPeriod=openNewPeriod;window.createPeriod=createPeriod;window.lockPeriod=lockPeriod;window.openUnit=openUnit;window.addTenant=addTenant;window.saveTenant=saveTenant;window.tenantCheckout=tenantCheckout;window.finishTenantCheckout=finishTenantCheckout;window.openAssessment=openAssessment;window.createAssessment=createAssessment;window.triggerBankImport=triggerBankImport;window.openPayment=openPayment;window.savePayment=savePayment;window.openStatement=openStatement;window.emailStatement=emailStatement;window.whatsappStatement=whatsappStatement;window.printAll=printAll;window.calculatePeriod=calculatePeriod;window.openMeter=openMeter;window.meterSetType=meterSetType;window.meterFocusInput=meterFocusInput;window.validateMeterInput=validateMeterInput;window.validateWaterInput=validateWaterInput;window.captureMeterPhoto=captureMeterPhoto;window.saveMeterDraft=saveMeterDraft;window.saveMeterNext=saveMeterNext;window.meterBack=meterBack;window.meterPrev=meterPrev;window.openInvoiceForm=openInvoiceForm;window.toggleInvoiceFields=toggleInvoiceFields;window.captureInvoiceDoc=captureInvoiceDoc;window.saveInvoice=saveInvoice;window.printInvoice=printInvoice;window.shareInvoiceMail=shareInvoiceMail;window.shareInvoiceWhatsApp=shareInvoiceWhatsApp;window.openExpenseForm=openExpenseForm;window.captureExpenseDoc=captureExpenseDoc;window.saveExpense=saveExpense;window.openUnitHistory=openUnitHistory;window.closeModal=closeModal;window.meterJumpToIndex=meterJumpToIndex;window.meterJumpToCode=meterJumpToCode;window.meterJumpNextMissing=meterJumpNextMissing;window.toggleMeterAutoAdvance=toggleMeterAutoAdvance;window.openExpenseBankMatcher=openExpenseBankMatcher;window.matchExpenseToBank=matchExpenseToBank;window.unlinkExpenseBank=unlinkExpenseBank;window.runExpenseOcr=runExpenseOcr;
 
 async function resumeAndRender(){
