@@ -391,6 +391,9 @@ body:has(#app > .access-page) { padding-bottom: 0; background: #f5f4ef; }
 .modal .unitCenterCards .card{padding:9px!important}
 .modal .unitCenterCards .kval{font-size:18px!important}
 .modal .unitPanel{margin-top:9px!important;padding:10px!important}
+.modal .unitPanel .row{padding:3px 6px!important;min-height:0!important;font-size:12px!important;line-height:1.2!important}
+.modal .unitPanel .row b{font-variant-numeric:tabular-nums}
+.modal .unitPanel h3{font-size:14px!important;margin:3px 0 6px!important}
 .modal .unitCenterHead{gap:8px!important}
 .modal .unitCenterHead h2{margin:0;font-size:17px!important}
 </style>
@@ -2113,7 +2116,7 @@ function personOptionsForTransfer(unitId,selected=''){
 function openChargeOwnerEditor(unitId,periodId,dueDate){
   const rows=chargeOwnerPeriodItems(unitId,periodId,dueDate);
   if(!rows.length)return notify('Seçilen dönem borçları bulunamadı.');
-  const paymentCount=rows.filter(c=>state.payments.some(p=>p.chargeId===c.id)).length;
+  const paymentCount=rows.filter(c=>state.payments.some(p=>p.chargeId===c.id||p.chargeId==='late_'+c.id)).length;
   const month=state.periods.find(p=>p.id===periodId)?.month||'';
   const ownerNames=[...new Set(rows.map(c=>person(chargeAccountPersonId(c))?.name||'Atanmamış'))].join(', ');
   openModal('<h2>'+esc(unit(unitId)?.label||unitId)+' · Borç Sorumlusu Düzenle</h2>'
