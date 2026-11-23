@@ -1891,12 +1891,17 @@ function archiveExistingPeriodConflict(start,end){
     return null;
   }
   const separate=state.periods.find(p=>p.month===from);
-  if(separate&&(
-    state.charges.some(c=>c.periodId===separate.id)||
-    state.meterReadings.some(r=>r.periodId===separate.id)||
-    state.invoices.some(i=>i.periodId===separate.id)||
-    state.payments.some(i=>i.periodId===separate.id)
-  ))return from+' için ayrı hesaplanmış işlemler var. Mükerrerlik riski nedeniyle ortak dönem aktarımı durduruldu.';
+  if(separate){
+    // A financial ledger period may hold historical bank payments, expenses and
+    // preliminary readings without having any separately assessed debt.
+    // Preserve those records in their original period. Only independently
+    // assessed charges, invoices or charge-linked payments block a joint import.
+    const assessed=state.charges.some(c=>c.periodId===separate.id);
+    const invoiced=state.invoices.some(i=>i.periodId===separate.id);
+    const paidAgainstCharge=state.payments.some(i=>i.periodId===separate.id&&i.chargeId);
+    if(assessed||invoiced||paidAgainstCharge)
+      return from+' döneminde gerçek tahakkuk, fatura veya borca bağlı ödeme bulundu. Ortak döneme geçmeden önce bu kayıtlar incelenmelidir.';
+  }
   const endPeriod=state.periods.find(p=>p.month===end);
   if(endPeriod){
     const existingStart=endPeriod.startMonth||end;
