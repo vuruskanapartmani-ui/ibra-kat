@@ -1990,8 +1990,8 @@ function openNewPeriod(){
   openModal(`<h2>Yeni Dönem Aç</h2><form class="stack" onsubmit="event.preventDefault();createPeriod()">
     <label>Dönem<input id="npMonth" type="month" required></label>
     <label>Son ödeme tarihi<input id="npDue" type="date" required></label>
-    <label class="switch"><input id="npTwoMonths" type="checkbox" onchange="toggleNewPeriodSecondMonth()"> İkinci ayı da aynı işlemde aç</label>
-    <div id="npSecondMonth" class="card" style="display:none"><div class="grid2"><label>İkinci dönem<input id="npMonth2" type="month"></label><label>İkinci ay son ödeme tarihi<input id="npDue2" type="date"></label></div><div class="small muted">İki dönem ayrı dönemler olarak kaydedilir; her biri sonra ayrı veya birlikte hesaplanabilir.</div></div>
+    <label>Dönem yapısı<select id="npPeriodMode" onchange="toggleNewPeriodSecondMonth()"><option value="single">Tek ay</option><option value="combined">İki ay tek ortak tahakkuk (Eylül–Ekim gibi)</option><option value="separate">İki ayrı ay, iki ayrı tahakkuk</option></select></label>
+    <div id="npSecondMonth" class="card" style="display:none"><div class="grid2"><label>İkinci / son ay<input id="npMonth2" type="month"></label><label id="npDue2Label">İkinci ay son ödeme tarihi<input id="npDue2" type="date"></label></div><div class="small muted" id="npPeriodHint">Ortak dönemde yalnızca tek borç ve tek vade oluşturulur.</div></div>
     <label>Sabit aidat<input id="npDues" type="number" value="${state.settings.defaultDues}" required></label>
     <label>Yönetici aidat muafiyeti (isteğe bağlı)<select id="npManagerUnit"><option value="">Bu dönem muafiyet yok</option>${state.units.filter(u=>u.type==='apartment'&&u.active).map(u=>`<option value="${u.id}" ${state.settings.defaultManagerDuesExemptUnitId===u.id?'selected':''}>${u.label}</option>`).join('')}</select><span class="small muted">Seçilen dairenin yalnız sabit aidatı 0 TL olur; tüketim ve ek borçlar devam eder.</span></label>
     <label>Kazan sıcaklığı<input id="npTemp" type="number" value="${state.settings.defaultBoilerTemp}" required></label>
@@ -1999,33 +1999,52 @@ function openNewPeriod(){
     <button class="primary">Dönemi Aç</button></form>`);
 }
 function toggleNewPeriodSecondMonth(){
-  const second=!!$('#npTwoMonths')?.checked,box=$('#npSecondMonth'),month=$('#npMonth2'),due=$('#npDue2');
-  if(box)box.style.display=second?'':'none';
-  if(month)month.required=second;
-  if(due)due.required=second;
+  const mode=$('#npPeriodMode')?.value||'single',box=$('#npSecondMonth'),month=$('#npMonth2'),
+    due=$('#npDue2'),dueLabel=$('#npDue2Label'),hint=$('#npPeriodHint');
+  const enabled=mode!=='single';
+  if(box)box.style.display=enabled?'':'none';
+  if(month)month.required=enabled;
+  if(due)due.required=mode==='separate';
+  if(dueLabel)dueLabel.style.display=mode==='separate'?'':'none';
+  if(hint)hint.textContent=mode==='combined'?'İlk ve ikinci ay TEK dönemdir; sistem tek borç oluşturur. Girişteki son ödeme tarihi ortak borcun vadesidir.':'İki dönem ayrı açılır; ayrı borç ve vadeleri olur.';
 }
 async function createPeriod(){
-  const month=$('#npMonth')?.value,due=$('#npDue')?.value,extra=!!$('#npTwoMonths')?.checked,
-    month2=extra?$('#npMonth2')?.value:null,due2=extra?$('#npDue2')?.value:null;
-  const months=[{month,due},...(extra?[{month:month2,due:due2}]:[])];
-  if(months.some(x=>!/^\d{4}-(0[1-9]|1[0-2])$/.test(x.month||'')||!/^\d{4}-\d{2}-\d{2}$/.test(x.due||'')))return notify('İki dönemin de ayı ve son ödeme tarihi geçerli olmalı.');
-  if(new Set(months.map(x=>x.month)).size!==months.length)return notify('İki farklı ay seçilmelidir.');
-  if(months.some(x=>state.periods.some(p=>p.month===x.month)))return notify('Seçilen aylardan biri zaten kayıtlı.');
+  const first=$('#npMonth')?.value,due=$('#npDue')?.value,
+    mode=$('#npPeriodMode')?.value||'single',second=mode==='single'?'':$('#npMonth2')?.value,
+    dueSecond=mode==='separate'?$('#npDue2')?.value:'';
+  let periods;
+  try{
+    if(!validArchiveMonth(first)||!/^\d{4}-\d{2}-\d{2}$/.test(due||''))throw Error('İlk dönemin ayı ve son ödeme tarihi gerekli.');
+    if(mode==='combined'){
+      if(archiveRangeStart(first,second)!==first||first===second)throw Error('Ortak dönemde art arda gelen iki farklı ay seçin.');
+      periods=[{month:second,startMonth:first,due}];
+    }else if(mode==='separate'){
+      if(!validArchiveMonth(second)||second===first||!/^\d{4}-\d{2}-\d{2}$/.test(dueSecond||''))throw Error('İkinci dönemin ayı ve son ödeme tarihi gerekli.');
+      periods=[{month:first,due},{month:second,due:dueSecond}];
+    }else periods=[{month:first,due}];
+  }catch(e){return notify(e.message)}
+  const overlapping=periods.some(x=>state.periods.some(p=>p.month===x.month||
+    (p.startMonth&&x.startMonth&&p.startMonth===x.startMonth)||
+    (x.startMonth&&p.month===x.startMonth)||
+    (p.startMonth&&p.startMonth===x.month)));
+  if(overlapping)return notify('Bu aylardan birinin dönem kaydı zaten mevcut. Aynı ayı iki kez hesaplayamayız.');
   const managerUnit=$('#npManagerUnit')?.value||state.settings.defaultManagerDuesExemptUnitId||'';
-  const template={status:'draft',boilerActive:$('#npBoiler').value==='1',dues:Number($('#npDues').value),boilerTemp:Number($('#npTemp').value),
-    gasConsumptionPct:state.settings.gasConsumptionPct,gasSqmPct:state.settings.gasSqmPct,
-    waterLossDivisor:state.settings.waterLossDivisor,lateFeeEnabled:state.settings.lateFeeEnabled,
-    lateFeeRate:state.settings.lateFeeRate,lateFeeMode:state.settings.lateFeeMode,managerDuesExemptUnitId:managerUnit||null};
+  const template={status:'draft',boilerActive:$('#npBoiler').value==='1',dues:Number($('#npDues').value),
+    boilerTemp:Number($('#npTemp').value),gasConsumptionPct:state.settings.gasConsumptionPct,
+    gasSqmPct:state.settings.gasSqmPct,waterLossDivisor:state.settings.waterLossDivisor,
+    lateFeeEnabled:state.settings.lateFeeEnabled,lateFeeRate:state.settings.lateFeeRate,
+    lateFeeMode:state.settings.lateFeeMode,managerDuesExemptUnitId:managerUnit||null};
   if(!Number.isFinite(template.dues)||template.dues<0)return notify('Aidat tutarı geçersiz.');
   try{
     const result=await commitSpreadsheetChange(()=>{
-      if(months.some(x=>state.periods.some(p=>p.month===x.month)))throw Error('Aylardan biri sunucuda mevcut. Yeni kayıt oluşturulmadı.');
-      const created=months.map(x=>({id:uid('p'),month:x.month,dueDate:x.due,...template}));
+      if(periods.some(x=>state.periods.some(p=>p.month===x.month||(x.startMonth&&p.month===x.startMonth)||(p.startMonth&&p.startMonth===x.month))))
+        throw Error('Ortak dönemle çakışan kayıt var. Kaydedilmedi.');
+      const created=periods.map(x=>({id:uid('p'),...x,...template}));
       state.periods.unshift(...created);
       return {changed:true,created};
-    },'Dönemler birlikte açıldı',x=>x.created.map(p=>p.month).join(' + '));
+    },'Dönem oluşturuldu',x=>x.created.map(periodDisplayName).join(' + '));
     activePeriodId=result.created[0].id;closeModal();go('periodDetail');
-    notify(result.created.map(p=>periodListLabel(p.month)).join(' ve ')+' dönemi sunucuya kaydedilip doğrulandı.');
+    notify(result.created.map(periodDisplayName).join(' ve ')+' kaydedildi ve sunucudan doğrulandı.');
   }catch(e){notify('Dönem oluşturulamadı: '+e.message)}
 }
 function lockPeriod(){const p=period();p.status='locked';saveState();logAudit('Dönem kesinleştirildi',p.month);render();notify('Dönem kesinleştirildi ve kilitlendi.')}
