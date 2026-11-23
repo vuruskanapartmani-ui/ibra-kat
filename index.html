@@ -2034,7 +2034,7 @@ function personLedgerEntries(unitId,personId){
   const rels=ledgerResponsibilityBounds(unitId,personId);
   const allowed=date=>!date||rels.some(r=>(!r.startDate||r.startDate<=date)&&(!r.endDate||r.endDate>=date));
   return {
-    charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId&&(c.splitBatchId||allowed(ledgerChargePeriodDate(c)))),
+    charges:state.charges.filter(c=>c.unitId===unitId&&chargeAccountPersonId(c)===personId&&(c.splitBatchId||c.assignmentReviewed||c.manualTransferAt||allowed(ledgerChargePeriodDate(c)))),
     payments:state.payments.filter(p=>p.unitId===unitId&&p.personId===personId&&allowed(p.date||null))
   };
 }
@@ -3109,11 +3109,13 @@ function debtPersonForMonth(unitId,month){
   const date=month+'-01';
   const rels=unitRelationships(unitId);
   const possible=rels.filter(({r})=>['tenant','owner'].includes(r.role)&&r.startDate&&r.startDate<=date&&(!r.endDate||r.endDate>=date));
-  const unknown=rels.some(({r})=>['tenant','owner'].includes(r.role)&&!r.startDate&&(r.endDate==null||r.endDate>=date));
-  if(unknown)return null;
   const tenants=possible.filter(({r})=>r.role==='tenant');
-  const chosen=tenants.length?tenants:possible.filter(({r})=>r.role==='owner');
-  return chosen.length===1?chosen[0].p.id:null;
+  const unresolvedTenant=rels.some(({r})=>r.role==='tenant'&&!r.startDate&&(r.endDate==null||r.endDate>=date));
+  if(unresolvedTenant)return null;
+  if(tenants.length)return tenants.length===1?tenants[0].p.id:null;
+  const owners=possible.filter(({r})=>r.role==='owner');
+  const unresolvedOwner=rels.some(({r})=>r.role==='owner'&&!r.startDate&&(r.endDate==null||r.endDate>=date));
+  return !unresolvedOwner&&owners.length===1?owners[0].p.id:null;
 }
 function monthEnd(month){
   return new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5)),0)).toISOString().slice(0,10);
